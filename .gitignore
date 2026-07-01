@@ -209,6 +209,9 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# Private student metadata and access tokens
+private_metadata.json
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
