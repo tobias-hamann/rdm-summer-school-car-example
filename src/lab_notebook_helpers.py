@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 import shutil
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -24,10 +25,13 @@ def setup_lab_environment(project_root=None):
         "shutil": shutil,
         "np": np,
         "pd": pd,
+        "plt": plt,
         "project_root": root,
         "load_recorded_data": load_recorded_data,
         "summarize_loaded_data": summarize_loaded_data,
         "prepare_recording_metadata_overview": prepare_recording_metadata_overview,
+        "create_recording_quality_report": create_recording_quality_report,
+        "plot_first_measurement_overview": plot_first_measurement_overview,
     }
 
 
@@ -161,3 +165,82 @@ def _select_relevant_device_rows(device_frame):
     pattern = "|".join(relevant_patterns)
     selected = device_frame[device_frame["property"].astype(str).str.contains(pattern, case=False, regex=True, na=False)]
     return selected if not selected.empty else device_frame.head(12)
+
+
+def create_recording_quality_report(df_raw, selected_data_path, metadata=None):
+    metadata = metadata or {}
+    measurement_type = metadata.get("measurement_type", "")
+    numeric_columns = df_raw.select_dtypes(include=[np.number]).columns.tolist()
+    time_candidates = [column for column in numeric_columns if "time" in column.lower() or "zeit" in column.lower()]
+    time_column = time_candidates[0] if time_candidates else None
+
+    quality_checks = []
+    _add_quality_check(quality_checks, measurement_type, "file_exists", selected_data_path.exists(), str(selected_data_path))
+    _add_quality_check(quality_checks, measurement_type, "has_rows", len(df_raw) > 0, f"{len(df_raw)} rows")
+    _add_quality_check(quality_checks, measurement_type, "has_columns", len(df_raw.columns) > 0, f"{len(df_raw.columns)} columns")
+    _add_quality_check(quality_checks, measurement_type, "missing_values", not df_raw.isna().any().any(), str(df_raw.isna().sum().to_dict()))
+    _add_quality_check(quality_checks, measurement_type, "duplicate_rows", df_raw.duplicated().sum() == 0, f"{int(df_raw.duplicated().sum())} duplicate rows")
+
+    for column in numeric_columns:
+        unique_count = df_raw[column].nunique(dropna=True)
+        _add_quality_check(quality_checks, measurement_type, f"not_flat_line:{column}", unique_count > 1, f"{unique_count} unique values")
+
+    if time_column:
+        time_diff = df_raw[time_column].diff().dropna()
+        duration = df_raw[time_column].max() - df_raw[time_column].min()
+        _add_quality_check(quality_checks, measurement_type, "time_increases", bool((time_diff > 0).all()), f"time column: {time_column}")
+        _add_quality_check(quality_checks, measurement_type, "duration_available", bool(duration > 0), f"duration: {duration}")
+
+    return pd.DataFrame(quality_checks), time_column
+
+
+def plot_first_measurement_overview(df_raw, metadata=None, time_column=None):
+    metadata = metadata or {}
+    numeric_columns = df_raw.select_dtypes(include=[np.number]).columns.tolist()
+    if not numeric_columns:
+        return None
+
+    if time_column is None:
+        time_candidates = [column for column in numeric_columns if "time" in column.lower() or "zeit" in column.lower()]
+        time_column = time_candidates[0] if time_candidates else None
+
+    value_columns = [column for column in numeric_columns if column != time_column]
+    if not value_columns:
+        value_columns = numeric_columns[:1]
+
+    columns_to_plot = value_columns[:3]
+    fig, ax = plt.subplots(figsize=(9, 4))
+
+    if time_column:
+        x = df_raw[time_column]
+        xlabel = time_column
+    else:
+        x = df_raw.index
+        xlabel = "row index"
+
+    for column in columns_to_plot:
+        ax.plot(x, df_raw[column], label=column, alpha=0.8)
+
+    title_parts = [
+        metadata.get("measurement_type", "measurement"),
+        metadata.get("run_name", ""),
+        metadata.get("quantity", ""),
+    ]
+    ax.set_title(" - ".join([part for part in title_parts if part]))
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("value")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.show()
+    return fig
+
+
+def _add_quality_check(rows, measurement_type, check, result, note):
+    rows.append(
+        {
+            "measurement_type": measurement_type,
+            "check": check,
+            "result": bool(result),
+            "note": note,
+        }
+    )
