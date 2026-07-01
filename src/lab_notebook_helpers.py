@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timezone
 import json
 import shutil
 
@@ -32,6 +33,8 @@ def setup_lab_environment(project_root=None):
         "prepare_recording_metadata_overview": prepare_recording_metadata_overview,
         "create_recording_quality_report": create_recording_quality_report,
         "plot_first_measurement_overview": plot_first_measurement_overview,
+        "display_keep_delete_decision": display_keep_delete_decision,
+        "require_keep_decision": require_keep_decision,
     }
 
 
@@ -233,6 +236,136 @@ def plot_first_measurement_overview(df_raw, metadata=None, time_column=None):
     ax.legend()
     plt.show()
     return fig
+
+
+def display_keep_delete_decision(project_root, selected_data_path, metadata=None, quality_report=None, log_path=None):
+    from IPython.display import HTML, display
+    import ipywidgets as widgets
+
+    metadata = metadata or {}
+    project_root = Path(project_root)
+    selected_data_path = Path(selected_data_path)
+    log_path = Path(log_path) if log_path else project_root / "data" / "lab5_keep_delete_decisions.jsonl"
+    state = {
+        "decision": None,
+        "reason": "",
+        "log_path": log_path,
+        "selected_data_path": selected_data_path,
+        "record": None,
+    }
+
+    info = HTML(
+        """
+        <div style="border-left: 4px solid #b7791f; background: #fff8e1; padding: 10px 12px; margin: 8px 0;">
+            <strong>Stop here.</strong> Check the table and plot above, then choose whether this recording is kept.
+            Continue with the next cell only after selecting <strong>Keep</strong>. If you choose <strong>Delete</strong>,
+            a reason is required and will be written to the decision log.
+        </div>
+        """
+    )
+    keep_button = widgets.Button(description="Keep", button_style="success", icon="check")
+    delete_button = widgets.Button(description="Delete", button_style="danger", icon="trash")
+    reason = widgets.Textarea(
+        placeholder="Describe what did not work, for example wrong sensor, missing axis, interrupted recording...",
+        layout=widgets.Layout(width="100%", height="90px"),
+    )
+    delete_restart_button = widgets.Button(
+        description="Delete and restart",
+        button_style="danger",
+        icon="refresh",
+        disabled=True,
+    )
+    delete_box = widgets.VBox(
+        [
+            widgets.HTML("<strong>Reason for deletion</strong><br>A short explanation is required before restart."),
+            reason,
+            delete_restart_button,
+        ],
+        layout=widgets.Layout(display="none", border="1px solid #ddd", padding="10px", margin="8px 0"),
+    )
+    output = widgets.Output()
+
+    def show_message(message, color):
+        with output:
+            output.clear_output()
+            display(HTML(f"<div style='color:{color}; font-weight:600;'>{message}</div>"))
+
+    def on_keep(_):
+        state["decision"] = "keep"
+        state["reason"] = ""
+        state["record"] = _build_keep_delete_record(metadata, selected_data_path, "keep", "", quality_report)
+        delete_box.layout.display = "none"
+        show_message("Decision saved in notebook state: keep. You can run the next cell now.", "#1f7a3a")
+
+    def on_delete(_):
+        state["decision"] = "delete_pending"
+        delete_box.layout.display = "block"
+        show_message("Deletion selected. Enter a reason, then use Delete and restart.", "#9b2c2c")
+
+    def on_reason_change(change):
+        delete_restart_button.disabled = not bool(change["new"].strip())
+
+    def on_delete_restart(_):
+        text = reason.value.strip()
+        if not text:
+            show_message("A reason is required before the run can be deleted.", "#9b2c2c")
+            return
+
+        record = _build_keep_delete_record(metadata, selected_data_path, "delete", text, quality_report)
+        _append_jsonl(log_path, record)
+        state["decision"] = "delete"
+        state["reason"] = text
+        state["record"] = record
+        show_message(
+            f"Reason logged to {log_path}. Stop this run now and restart the notebook after recording new data.",
+            "#9b2c2c",
+        )
+
+    keep_button.on_click(on_keep)
+    delete_button.on_click(on_delete)
+    reason.observe(on_reason_change, names="value")
+    delete_restart_button.on_click(on_delete_restart)
+
+    display(info, widgets.HBox([keep_button, delete_button]), delete_box, output)
+    return state
+
+
+def require_keep_decision(decision_state):
+    decision = None if decision_state is None else decision_state.get("decision")
+    if decision != "keep":
+        raise RuntimeError(
+            "Stop here: choose 'Keep' in the decision widget above before continuing. "
+            "If 'Delete' was selected, restart the notebook after recording a new run."
+        )
+
+    print("Decision accepted: keep. Continue with storage and documentation.")
+
+
+def _build_keep_delete_record(metadata, selected_data_path, decision, reason, quality_report=None):
+    failed_checks = []
+    if quality_report is not None and "result" in quality_report.columns:
+        failed = quality_report[~quality_report["result"].astype(bool)]
+        failed_checks = failed[["check", "note"]].to_dict(orient="records")
+
+    return {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "decision": decision,
+        "reason": reason,
+        "recorded_data_path": str(selected_data_path),
+        "measurement_type": metadata.get("measurement_type", ""),
+        "run_name": metadata.get("run_name", ""),
+        "quantity": metadata.get("quantity", ""),
+        "data_stage": metadata.get("data_stage", ""),
+        "version": metadata.get("version", ""),
+        "failed_checks": failed_checks,
+    }
+
+
+def _append_jsonl(path, record):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def _add_quality_check(rows, measurement_type, check, result, note):
