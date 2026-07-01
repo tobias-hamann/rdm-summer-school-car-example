@@ -1,3 +1,9 @@
 {
-  "recorded_data_path": "data/drivetrain/Example/Raw Data.csv"
+  "recorded_data_path": "data/drivetrain/Example/Raw Data.csv",
+  "measurement_type": "drivetrain",
+  "run_name": "Example",
+  "quantity": "illuminance",
+  "data_stage": "raw",
+  "version": "v0.1.0",
+  "hot_storage_path": ""
 }

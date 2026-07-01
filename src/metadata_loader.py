@@ -4,6 +4,7 @@ import json
 
 
 DEFAULT_RECORDED_DATA_PATH = "data/drivetrain/Example/Raw Data.csv"
+DEFAULT_MEASUREMENT_TYPE = "drivetrain"
 PUBLIC_METADATA_FILENAME = "metadata.json"
 PRIVATE_METADATA_FILENAME = "private_metadata.json"
 TOKEN_REDACTION = "***REDACTED***"
@@ -39,9 +40,23 @@ def private_metadata_path(project_root=None):
     return _project_root(project_root) / PRIVATE_METADATA_FILENAME
 
 
-def default_public_metadata(recorded_data_path=DEFAULT_RECORDED_DATA_PATH):
+def default_public_metadata(
+    recorded_data_path=DEFAULT_RECORDED_DATA_PATH,
+    measurement_type=DEFAULT_MEASUREMENT_TYPE,
+    run_name="Example",
+    quantity="illuminance",
+    data_stage="raw",
+    version="v0.1.0",
+    hot_storage_path="",
+):
     return {
         "recorded_data_path": recorded_data_path,
+        "measurement_type": measurement_type,
+        "run_name": run_name,
+        "quantity": quantity,
+        "data_stage": data_stage,
+        "version": version,
+        "hot_storage_path": hot_storage_path,
     }
 
 
@@ -58,19 +73,37 @@ def default_private_metadata():
 
 
 def load_public_metadata(project_root=None, metadata_file=None):
-    # Load the course-level pointer metadata and normalize older field names
-    # that may still exist in notebooks or student copies.
+    # Load the course-level metadata and normalize older field names that may
+    # still exist in notebooks or student copies.
     path = Path(metadata_file) if metadata_file else public_metadata_path(project_root)
     metadata = load_json_file(path, default_public_metadata())
     recorded_data_path = get_recorded_data_path(metadata)
     metadata["recorded_data_path"] = recorded_data_path
+    metadata.setdefault("measurement_type", infer_measurement_type(recorded_data_path))
+    metadata.setdefault("run_name", infer_run_name(recorded_data_path))
+    metadata.setdefault("quantity", infer_quantity(recorded_data_path))
+    metadata.setdefault("data_stage", "raw")
+    metadata.setdefault("version", "v0.1.0")
+    metadata.setdefault("hot_storage_path", "")
     return metadata
 
 
 def save_public_metadata(metadata, project_root=None, metadata_file=None):
-    # Save only the public pointer field, not extracted recording metadata.
+    # Save only compact course metadata, not extracted recording metadata.
     path = Path(metadata_file) if metadata_file else public_metadata_path(project_root)
-    write_json_file(path, default_public_metadata(get_recorded_data_path(metadata)))
+    recorded_data_path = get_recorded_data_path(metadata)
+    write_json_file(
+        path,
+        default_public_metadata(
+            recorded_data_path=recorded_data_path,
+            measurement_type=metadata.get("measurement_type", infer_measurement_type(recorded_data_path)),
+            run_name=metadata.get("run_name", infer_run_name(recorded_data_path)),
+            quantity=metadata.get("quantity", infer_quantity(recorded_data_path)),
+            data_stage=metadata.get("data_stage", "raw"),
+            version=metadata.get("version", "v0.1.0"),
+            hot_storage_path=metadata.get("hot_storage_path", ""),
+        ),
+    )
     return path
 
 
@@ -107,6 +140,33 @@ def get_recorded_data_path(metadata, default=DEFAULT_RECORDED_DATA_PATH):
     return default
 
 
+def infer_measurement_type(recorded_data_path):
+    # Keep inference simple and transparent for the course example data.
+    path_text = str(recorded_data_path).replace("\\", "/").lower()
+    if "/suspension/" in path_text or path_text.startswith("data/suspension/"):
+        return "suspension"
+    if "/drivetrain/" in path_text or path_text.startswith("data/drivetrain/"):
+        return "drivetrain"
+    return DEFAULT_MEASUREMENT_TYPE
+
+
+def infer_run_name(recorded_data_path):
+    path = Path(recorded_data_path)
+    parts = list(path.parts)
+    if len(parts) >= 3:
+        return parts[-2]
+    return path.stem or "Example"
+
+
+def infer_quantity(recorded_data_path):
+    path_text = str(recorded_data_path).replace("\\", "/").lower()
+    if "beschleunigung" in path_text or "accel" in path_text:
+        return "acceleration"
+    if "raw data" in path_text and "drivetrain" in path_text:
+        return "illuminance"
+    return "measurement"
+
+
 def resolve_recorded_data_path(project_root=None, metadata=None):
     # Convert the public metadata pointer into a concrete filesystem path.
     root = _project_root(project_root)
@@ -115,12 +175,17 @@ def resolve_recorded_data_path(project_root=None, metadata=None):
     return root / recorded_data_path
 
 
-def apply_recorded_data_path_override(metadata, recorded_data_path_override=None):
+def apply_recorded_data_path_override(metadata, recorded_data_path_override=None, measurement_type_override=None):
     # Notebook cells can call this to switch datasets without editing the JSON
     # file unless the user explicitly saves the returned metadata.
     metadata = dict(metadata)
     if recorded_data_path_override:
         metadata["recorded_data_path"] = recorded_data_path_override
+        metadata["measurement_type"] = measurement_type_override or infer_measurement_type(recorded_data_path_override)
+        metadata.setdefault("run_name", infer_run_name(recorded_data_path_override))
+        metadata.setdefault("quantity", infer_quantity(recorded_data_path_override))
+    elif measurement_type_override:
+        metadata["measurement_type"] = measurement_type_override
     return metadata
 
 
@@ -159,6 +224,12 @@ def summarize_metadata_context(context):
         "public_metadata_path": _string_path(context["public_metadata_path"]),
         "private_metadata_path": _string_path(context["private_metadata_path"]),
         "recorded_data_path": get_recorded_data_path(context["public_metadata"]),
+        "measurement_type": context["public_metadata"].get("measurement_type"),
+        "run_name": context["public_metadata"].get("run_name"),
+        "quantity": context["public_metadata"].get("quantity"),
+        "data_stage": context["public_metadata"].get("data_stage"),
+        "version": context["public_metadata"].get("version"),
+        "hot_storage_path": context["public_metadata"].get("hot_storage_path"),
         "selected_data_path": _string_path(context["selected_data_path"]),
         "student": context["private_metadata_display"].get("student", {}),
         "zenodo": context["private_metadata_display"].get("zenodo", {}),
