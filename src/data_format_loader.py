@@ -436,6 +436,48 @@ def calculate_drivetrain_rotation(df_analysis, time_column, value_column, metada
     }
 
 
+def plot_motor_speed_diagram(drivetrain_rotation):
+    import matplotlib.pyplot as plt
+
+    summary = drivetrain_rotation["summary"]
+    rotor_rpm = float(summary[(summary["metric"] == "rotor_speed") & (summary["unit"] == "rpm")]["value"].iloc[0])
+    motor_rpm = float(summary[summary["metric"] == "motor_speed"]["value"].iloc[0])
+    gear_ratio = float(summary[summary["metric"] == "motor_to_rotor_gear_ratio"]["value"].iloc[0])
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    bars = ax.bar(
+        ["Rotor", "Motor"],
+        [rotor_rpm, motor_rpm],
+        color=["#4f7cff", "#172554"],
+    )
+
+    ax.set_title("Calculated Rotational Speed")
+    ax.set_ylabel("Speed (rpm)")
+    ax.grid(axis="y", alpha=0.3)
+    ax.text(
+        0.5,
+        0.95,
+        f"Gear ratio: rotor rpm / motor rpm = {gear_ratio:.4f}",
+        transform=ax.transAxes,
+        ha="center",
+        va="top",
+    )
+
+    for bar in bars:
+        height = bar.get_height()
+        ax.annotate(
+            f"{height:.1f} rpm",
+            xy=(bar.get_x() + bar.get_width() / 2, height),
+            xytext=(0, 4),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+        )
+
+    plt.show()
+    return fig, ax
+
+
 def _resolve_drivetrain_gears(drivetrain_metadata):
     rows = []
     first_combo = drivetrain_metadata.get("first_gear_combo", {})
