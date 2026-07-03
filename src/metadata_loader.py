@@ -48,6 +48,7 @@ def default_public_metadata(
     data_stage="raw",
     version="v0.1.0",
     hot_storage_path="",
+    drivetrain=None,
 ):
     return {
         "recorded_data_path": recorded_data_path,
@@ -57,6 +58,40 @@ def default_public_metadata(
         "data_stage": data_stage,
         "version": version,
         "hot_storage_path": hot_storage_path,
+        "drivetrain": drivetrain or default_drivetrain_metadata(),
+    }
+
+
+def default_drivetrain_metadata():
+    return {
+        "rotor_marker": {
+            "bright_dark_cycles_per_rotation": 1,
+        },
+        "first_gear_combo": {
+            "switch_position": "towards motor",
+            "settings": {
+                "towards motor": {
+                    "motor_gear_teeth": 12,
+                    "rotor_gear_teeth": 36,
+                },
+                "towards rotor": {
+                    "motor_gear_teeth": 36,
+                    "rotor_gear_teeth": 12,
+                },
+            },
+        },
+        "gear_combos": [
+            {
+                "name": "gear combo 2",
+                "motor_gear_teeth": 12,
+                "rotor_gear_teeth": 36,
+            },
+            {
+                "name": "gear combo 3",
+                "motor_gear_teeth": 12,
+                "rotor_gear_teeth": 36,
+            },
+        ],
     }
 
 
@@ -85,6 +120,7 @@ def load_public_metadata(project_root=None, metadata_file=None):
     metadata.setdefault("data_stage", "raw")
     metadata.setdefault("version", "v0.1.0")
     metadata.setdefault("hot_storage_path", "")
+    metadata.setdefault("drivetrain", default_drivetrain_metadata())
     return metadata
 
 
@@ -102,6 +138,7 @@ def save_public_metadata(metadata, project_root=None, metadata_file=None):
             data_stage=metadata.get("data_stage", "raw"),
             version=metadata.get("version", "v0.1.0"),
             hot_storage_path=metadata.get("hot_storage_path", ""),
+            drivetrain=metadata.get("drivetrain", default_drivetrain_metadata()),
         ),
     )
     return path
@@ -230,6 +267,7 @@ def summarize_metadata_context(context):
         "data_stage": context["public_metadata"].get("data_stage"),
         "version": context["public_metadata"].get("version"),
         "hot_storage_path": context["public_metadata"].get("hot_storage_path"),
+        "drivetrain": context["public_metadata"].get("drivetrain", {}),
         "selected_data_path": _string_path(context["selected_data_path"]),
         "student": context["private_metadata_display"].get("student", {}),
         "zenodo": context["private_metadata_display"].get("zenodo", {}),

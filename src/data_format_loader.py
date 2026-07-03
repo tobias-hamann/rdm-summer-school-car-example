@@ -395,6 +395,85 @@ def compare_smoothing_windows(df_analysis, time_column, value_column, smoothing_
     return comparison, pd.DataFrame(summary_rows)
 
 
+def calculate_drivetrain_rotation(df_analysis, time_column, value_column, metadata, signal_column="smoothed"):
+    drivetrain_metadata = metadata.get("drivetrain", {})
+    value_series = df_analysis[signal_column] if signal_column in df_analysis.columns else df_analysis[value_column]
+    threshold = (value_series.quantile(0.25) + value_series.quantile(0.75)) / 2
+    is_bright = value_series >= threshold
+    rising_edges = df_analysis.loc[is_bright & ~is_bright.shift(fill_value=False), time_column]
+
+    cycles_per_rotation = drivetrain_metadata.get("rotor_marker", {}).get("bright_dark_cycles_per_rotation", 1)
+    if cycles_per_rotation <= 0:
+        raise ValueError("bright_dark_cycles_per_rotation must be larger than zero.")
+
+    rotation_periods = rising_edges.diff().dropna() * cycles_per_rotation
+    rotor_rotation_hz = 1 / rotation_periods.mean() if len(rotation_periods) else float("nan")
+    rotor_rpm = rotor_rotation_hz * 60
+
+    gear_rows, motor_to_rotor_ratio = _resolve_drivetrain_gears(drivetrain_metadata)
+    motor_rpm = rotor_rpm / motor_to_rotor_ratio if motor_to_rotor_ratio else float("nan")
+
+    summary = pd.DataFrame(
+        [
+            {"metric": "brightness_threshold", "value": threshold, "unit": value_column},
+            {"metric": "detected_rotations", "value": int(len(rotation_periods)), "unit": "rotations"},
+            {"metric": "mean_rotor_period", "value": rotation_periods.mean(), "unit": "s"},
+            {"metric": "rotor_speed", "value": rotor_rotation_hz, "unit": "rotations/s"},
+            {"metric": "rotor_speed", "value": rotor_rpm, "unit": "rpm"},
+            {"metric": "motor_to_rotor_gear_ratio", "value": motor_to_rotor_ratio, "unit": "rotor rpm / motor rpm"},
+            {"metric": "motor_speed", "value": motor_rpm, "unit": "rpm"},
+        ]
+    )
+
+    return {
+        "summary": summary,
+        "gear_table": pd.DataFrame(gear_rows),
+        "rising_edges": rising_edges,
+        "threshold": threshold,
+        "rotor_rpm": rotor_rpm,
+        "motor_rpm": motor_rpm,
+        "motor_to_rotor_ratio": motor_to_rotor_ratio,
+    }
+
+
+def _resolve_drivetrain_gears(drivetrain_metadata):
+    rows = []
+    first_combo = drivetrain_metadata.get("first_gear_combo", {})
+    switch_position = first_combo.get("switch_position", "towards motor")
+    first_settings = first_combo.get("settings", {})
+    first_stage = first_settings.get(switch_position)
+    if first_stage is None:
+        raise ValueError(f"Unknown first gear switch position: {switch_position!r}")
+
+    stages = [
+        {
+            "name": f"gear combo 1 ({switch_position})",
+            **first_stage,
+        },
+        *drivetrain_metadata.get("gear_combos", []),
+    ]
+
+    motor_to_rotor_ratio = 1.0
+    for stage in stages:
+        motor_teeth = stage.get("motor_gear_teeth")
+        rotor_teeth = stage.get("rotor_gear_teeth")
+        if not motor_teeth or not rotor_teeth:
+            raise ValueError(f"Missing gear teeth metadata in {stage.get('name', 'unnamed gear combo')}.")
+
+        stage_ratio = motor_teeth / rotor_teeth
+        motor_to_rotor_ratio *= stage_ratio
+        rows.append(
+            {
+                "gear_combo": stage.get("name", "gear combo"),
+                "motor_gear_teeth": motor_teeth,
+                "rotor_gear_teeth": rotor_teeth,
+                "stage_ratio": stage_ratio,
+            }
+        )
+
+    return rows, motor_to_rotor_ratio
+
+
 def summarize_analysis_results(
     selected_data_path,
     project_root,
@@ -405,7 +484,18 @@ def summarize_analysis_results(
     value_column,
     smoothing_window,
     outlier_z_threshold,
+    drivetrain_rotation=None,
 ):
+    extra_items = []
+    extra_values = []
+    if drivetrain_rotation is not None:
+        extra_items = ["rotor_speed_rpm", "motor_speed_rpm", "motor_to_rotor_gear_ratio"]
+        extra_values = [
+            drivetrain_rotation.get("rotor_rpm"),
+            drivetrain_rotation.get("motor_rpm"),
+            drivetrain_rotation.get("motor_to_rotor_ratio"),
+        ]
+
     return pd.DataFrame(
         {
             "item": [
@@ -430,6 +520,7 @@ def summarize_analysis_results(
                 "mean_value",
                 "median_value",
                 "standard_deviation",
+                *extra_items,
             ],
             "value": [
                 str(Path(selected_data_path).relative_to(project_root)),
@@ -453,6 +544,7 @@ def summarize_analysis_results(
                 df_analysis[value_column].mean(),
                 df_analysis[value_column].median(),
                 df_analysis[value_column].std(),
+                *extra_values,
             ],
         }
     )

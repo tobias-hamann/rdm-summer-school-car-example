@@ -5,5 +5,35 @@
   "quantity": "illuminance",
   "data_stage": "raw",
   "version": "v0.1.0",
-  "hot_storage_path": ""
+  "hot_storage_path": "",
+  "drivetrain": {
+    "rotor_marker": {
+      "bright_dark_cycles_per_rotation": 1
+    },
+    "first_gear_combo": {
+      "switch_position": "towards motor",
+      "settings": {
+        "towards motor": {
+          "motor_gear_teeth": 12,
+          "rotor_gear_teeth": 36
+        },
+        "towards rotor": {
+          "motor_gear_teeth": 12,
+          "rotor_gear_teeth": 12
+        }
+      }
+    },
+    "gear_combos": [
+      {
+        "name": "gear combo 2",
+        "motor_gear_teeth": 12,
+        "rotor_gear_teeth": 36
+      },
+      {
+        "name": "gear combo 3",
+        "motor_gear_teeth": 12,
+        "rotor_gear_teeth": 36
+      }
+    ]
+  }
 }
