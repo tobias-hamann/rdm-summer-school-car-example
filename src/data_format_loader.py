@@ -507,21 +507,36 @@ def plot_motor_speed_parameter_comparison(motor_speed_parameter_comparison):
 def plot_motor_speed_diagram(drivetrain_rotation):
     import matplotlib.pyplot as plt
 
-    summary = drivetrain_rotation["summary"]
-    rotor_rpm = float(summary[(summary["metric"] == "rotor_speed") & (summary["unit"] == "rpm")]["value"].iloc[0])
-    motor_rpm = float(summary[summary["metric"] == "motor_speed"]["value"].iloc[0])
-    gear_ratio = float(summary[summary["metric"] == "motor_to_rotor_gear_ratio"]["value"].iloc[0])
+    rotations = drivetrain_rotation["rotations"]
+    gear_ratio = drivetrain_rotation["motor_to_rotor_ratio"]
+    if rotations.empty:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.set_title("Calculated Rotational Speed")
+        ax.text(0.5, 0.5, "No full rotations detected", ha="center", va="center", transform=ax.transAxes)
+        plt.show()
+        return fig, ax
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    bars = ax.bar(
-        ["Rotor", "Motor"],
-        [rotor_rpm, motor_rpm],
-        color=["#4f7cff", "#172554"],
+    ax.plot(
+        rotations["rotation_time"],
+        rotations["rotor_rpm"],
+        marker="o",
+        label="rotor rpm",
+        color="#4f7cff",
+    )
+    ax.plot(
+        rotations["rotation_time"],
+        rotations["motor_rpm"],
+        marker="o",
+        label="motor rpm",
+        color="#172554",
     )
 
-    ax.set_title("Calculated Rotational Speed")
+    ax.set_title("Calculated Rotational Speed Over Time")
+    ax.set_xlabel("Time (s)")
     ax.set_ylabel("Speed (rpm)")
-    ax.grid(axis="y", alpha=0.3)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
     ax.text(
         0.5,
         0.95,
@@ -530,18 +545,37 @@ def plot_motor_speed_diagram(drivetrain_rotation):
         ha="center",
         va="top",
     )
+    plt.show()
+    return fig, ax
 
-    for bar in bars:
-        height = bar.get_height()
-        ax.annotate(
-            f"{height:.1f} rpm",
-            xy=(bar.get_x() + bar.get_width() / 2, height),
-            xytext=(0, 4),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
+
+def plot_motor_speed_outlier_diagram(motor_speed_rotations):
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(
+        motor_speed_rotations["rotation_time"],
+        motor_speed_rotations["motor_rpm"],
+        marker="o",
+        label="motor rpm",
+        color="#172554",
+    )
+
+    if "possible_motor_rpm_outlier" in motor_speed_rotations.columns:
+        outliers = motor_speed_rotations[motor_speed_rotations["possible_motor_rpm_outlier"]]
+        ax.scatter(
+            outliers["rotation_time"],
+            outliers["motor_rpm"],
+            color="red",
+            label="possible outlier",
+            zorder=3,
         )
 
+    ax.set_title("Possible Motor Speed Outliers")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Motor speed (rpm)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
     plt.show()
     return fig, ax
 
