@@ -406,12 +406,21 @@ def calculate_drivetrain_rotation(df_analysis, time_column, value_column, metada
     if cycles_per_rotation <= 0:
         raise ValueError("bright_dark_cycles_per_rotation must be larger than zero.")
 
+    gear_rows, motor_to_rotor_ratio = _resolve_drivetrain_gears(drivetrain_metadata)
     rotation_periods = rising_edges.diff().dropna() * cycles_per_rotation
     rotor_rotation_hz = 1 / rotation_periods.mean() if len(rotation_periods) else float("nan")
     rotor_rpm = rotor_rotation_hz * 60
-
-    gear_rows, motor_to_rotor_ratio = _resolve_drivetrain_gears(drivetrain_metadata)
     motor_rpm = rotor_rpm / motor_to_rotor_ratio if motor_to_rotor_ratio else float("nan")
+
+    rotations = pd.DataFrame(
+        {
+            "rotation_time": rising_edges.iloc[1:].to_numpy(),
+            "rotor_period_s": rotation_periods.to_numpy(),
+        }
+    )
+    if not rotations.empty:
+        rotations["rotor_rpm"] = 60 / rotations["rotor_period_s"]
+        rotations["motor_rpm"] = rotations["rotor_rpm"] / motor_to_rotor_ratio if motor_to_rotor_ratio else float("nan")
 
     summary = pd.DataFrame(
         [
@@ -428,12 +437,71 @@ def calculate_drivetrain_rotation(df_analysis, time_column, value_column, metada
     return {
         "summary": summary,
         "gear_table": pd.DataFrame(gear_rows),
+        "rotations": rotations,
         "rising_edges": rising_edges,
         "threshold": threshold,
         "rotor_rpm": rotor_rpm,
         "motor_rpm": motor_rpm,
         "motor_to_rotor_ratio": motor_to_rotor_ratio,
     }
+
+
+def detect_motor_speed_outliers(drivetrain_rotation, z_threshold=3.0):
+    rotations = drivetrain_rotation["rotations"].copy()
+    if rotations.empty:
+        rotations["motor_rpm_z_score"] = []
+        rotations["possible_motor_rpm_outlier"] = []
+        return rotations, pd.DataFrame([{"metric": "possible_motor_rpm_outliers", "value": 0}])
+
+    motor_rpm_mean = rotations["motor_rpm"].mean()
+    motor_rpm_std = rotations["motor_rpm"].std(ddof=0)
+    if motor_rpm_std == 0 or pd.isna(motor_rpm_std):
+        rotations["motor_rpm_z_score"] = 0.0
+    else:
+        rotations["motor_rpm_z_score"] = (rotations["motor_rpm"] - motor_rpm_mean) / motor_rpm_std
+
+    rotations["possible_motor_rpm_outlier"] = rotations["motor_rpm_z_score"].abs() > z_threshold
+    summary = pd.DataFrame(
+        [
+            {"metric": "mean_motor_rpm", "value": motor_rpm_mean},
+            {"metric": "motor_rpm_std", "value": motor_rpm_std},
+            {"metric": "possible_motor_rpm_outliers", "value": int(rotations["possible_motor_rpm_outlier"].sum())},
+        ]
+    )
+    return rotations, summary
+
+
+def compare_motor_speed_parameters(df_analysis, time_column, value_column, metadata, smoothing_windows):
+    rows = []
+    for window in smoothing_windows:
+        smoothed = add_smoothed_values(df_analysis, value_column, window)
+        rotation = calculate_drivetrain_rotation(smoothed, time_column, value_column, metadata)
+        rows.append(
+            {
+                "smoothing_window": window,
+                "detected_rotations": int(len(rotation["rotations"])),
+                "rotor_speed_rpm": rotation["rotor_rpm"],
+                "motor_speed_rpm": rotation["motor_rpm"],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def plot_motor_speed_parameter_comparison(motor_speed_parameter_comparison):
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(
+        motor_speed_parameter_comparison["smoothing_window"],
+        motor_speed_parameter_comparison["motor_speed_rpm"],
+        marker="o",
+    )
+    ax.set_title("Motor Speed by Smoothing Window")
+    ax.set_xlabel("Smoothing window")
+    ax.set_ylabel("Motor speed (rpm)")
+    ax.grid(True, alpha=0.3)
+    plt.show()
+    return fig, ax
 
 
 def plot_motor_speed_diagram(drivetrain_rotation):
