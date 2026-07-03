@@ -332,13 +332,67 @@ def display_keep_delete_decision(project_root, selected_data_path, metadata=None
 
 def require_keep_decision(decision_state):
     decision = None if decision_state is None else decision_state.get("decision")
-    if decision != "keep":
-        raise RuntimeError(
-            "Stop here: choose 'Keep' in the decision widget above before continuing. "
-            "If 'Delete' was selected, restart the notebook after recording a new run."
+    if decision == "keep":
+        print("Decision accepted: keep. Continue with storage and documentation.")
+        return
+
+    message = _build_keep_decision_error_message(decision_state, decision)
+    _display_keep_decision_error(message)
+    raise RuntimeError(message)
+
+
+def _build_keep_decision_error_message(decision_state, decision):
+    if decision_state is None:
+        return (
+            "Section 7 is not ready yet: run the keep/delete widget cell first, "
+            "then click 'Keep' before running this guard cell."
         )
 
-    print("Decision accepted: keep. Continue with storage and documentation.")
+    if decision is None:
+        return (
+            "Section 7 is waiting for your decision. The keep/delete widget was created, "
+            "but no button has been clicked yet. Click 'Keep' in the widget output above, "
+            "then run this cell again. If you used 'Run All', stop at Section 7 and run "
+            "the next cell manually after clicking 'Keep'."
+        )
+
+    if decision == "delete_pending":
+        return (
+            "Section 7 is waiting for the deletion reason. You selected 'Delete'; enter "
+            "a reason and click 'Delete and restart', then stop this notebook run and "
+            "record/select a new run."
+        )
+
+    if decision == "delete":
+        return (
+            "Section 7 cannot continue because this run was marked for deletion. "
+            "Restart the notebook after recording/selecting a new run."
+        )
+
+    return (
+        f"Section 7 has an unexpected decision state ({decision!r}). Click 'Keep' in "
+        "the widget output above, then run this cell again."
+    )
+
+
+def _display_keep_decision_error(message):
+    try:
+        from IPython.display import HTML, display
+        from html import escape
+    except ImportError:
+        return
+
+    escaped_message = escape(message)
+    display(
+        HTML(
+            f"""
+            <div style="border-left: 4px solid #9b2c2c; background: #fff5f5; padding: 10px 12px; margin: 8px 0;">
+                <strong>Notebook paused at Section 7.</strong><br>
+                {escaped_message}
+            </div>
+            """
+        )
+    )
 
 
 def _build_keep_delete_record(metadata, selected_data_path, decision, reason, quality_report=None):
