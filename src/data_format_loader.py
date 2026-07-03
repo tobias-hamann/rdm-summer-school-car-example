@@ -586,36 +586,58 @@ def plot_primary_measurement(analysis_context):
     config = analysis_context["config"]
     time_column = analysis_context["time_column"]
 
-    fig, ax = plt.subplots(figsize=(10, 4))
-
     if analysis_context["analysis_key"] == "suspension_acceleration":
-        for column, smoothed_column, label in [
-            (config["main_axis_column"], "main_axis_smoothed", "main axis"),
-            (config["lateral_axis_column"], "lateral_axis_smoothed", "lateral axis"),
-            (config["vertical_axis_column"], "vertical_axis_smoothed", "vertical axis"),
-        ]:
-            ax.plot(df_analysis[time_column], df_analysis[column], label=label, alpha=0.6)
-            ax.plot(df_analysis[time_column], df_analysis[smoothed_column], label=f"{label} smoothed", linewidth=2)
-        ax.set_title("Raw and Smoothed Acceleration Axes")
-        ax.set_ylabel("Acceleration (m/s^2)")
-    else:
-        if config.get("plot_raw_values", True):
-            ax.plot(
-                df_analysis[time_column],
-                df_analysis[analysis_context["value_column"]],
-                label="raw values",
-                alpha=0.45,
-            )
-        if config.get("plot_smoothed_values", True):
-            ax.plot(
-                df_analysis[time_column],
-                df_analysis["smoothed"],
-                label=f"smoothed, window={config.get('smoothing_window', 5)}",
-                linewidth=2,
-            )
-        ax.set_title("Measurement Values Over Time")
-        ax.set_ylabel(analysis_context["value_column"])
+        fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
+        axis_specs = [
+            (config["main_axis_column"], "main_axis_smoothed", "main axis", "#16a34a"),
+            (config["lateral_axis_column"], "lateral_axis_smoothed", "lateral axis", "#4f7cff"),
+            (config["vertical_axis_column"], "vertical_axis_smoothed", "vertical axis", "#172554"),
+        ]
 
+        for ax, (column, smoothed_column, label, color) in zip(axes, axis_specs):
+            if config.get("plot_raw_values", True):
+                ax.plot(
+                    df_analysis[time_column],
+                    df_analysis[column],
+                    label=label,
+                    color=color,
+                    alpha=0.35,
+                )
+            if config.get("plot_smoothed_values", True):
+                ax.plot(
+                    df_analysis[time_column],
+                    df_analysis[smoothed_column],
+                    label=f"{label} smoothed",
+                    color=color,
+                    linewidth=2,
+                )
+            ax.set_ylabel("m/s^2")
+            ax.legend(loc="upper left")
+            ax.grid(True, alpha=0.3)
+
+        axes[0].set_title("Raw and Smoothed Acceleration Axes")
+        axes[-1].set_xlabel(time_column)
+        fig.tight_layout()
+        plt.show()
+        return fig, axes
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    if config.get("plot_raw_values", True):
+        ax.plot(
+            df_analysis[time_column],
+            df_analysis[analysis_context["value_column"]],
+            label="raw values",
+            alpha=0.45,
+        )
+    if config.get("plot_smoothed_values", True):
+        ax.plot(
+            df_analysis[time_column],
+            df_analysis["smoothed"],
+            label=f"smoothed, window={config.get('smoothing_window', 5)}",
+            linewidth=2,
+        )
+    ax.set_title("Measurement Values Over Time")
+    ax.set_ylabel(analysis_context["value_column"])
     ax.set_xlabel(time_column)
     ax.legend()
     ax.grid(True, alpha=0.3)
