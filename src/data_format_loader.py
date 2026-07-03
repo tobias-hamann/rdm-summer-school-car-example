@@ -713,7 +713,10 @@ def run_specialized_analysis(analysis_context, metadata):
         suspension_motion = calculate_suspension_motion(analysis_context)
         suspension_outliers, suspension_outlier_summary = detect_suspension_motion_outliers(
             suspension_motion,
-            z_threshold=analysis_context["config"].get("outlier_z_threshold", 3.0),
+            z_threshold=analysis_context["config"].get(
+                "motion_outlier_z_threshold",
+                analysis_context["config"].get("outlier_z_threshold", 3.0),
+            ),
         )
         parameter_comparison = compare_suspension_parameters(
             analysis_context,
@@ -1065,9 +1068,9 @@ def plot_suspension_outlier_diagram(suspension_outliers):
     time_column = "Time (s)" if "Time (s)" in suspension_outliers.columns else suspension_outliers.columns[0]
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(suspension_outliers[time_column], suspension_outliers["speed_m_per_s"], label="speed", color="#172554")
-    outliers = suspension_outliers[suspension_outliers["possible_motion_outlier"]]
-    ax.scatter(outliers[time_column], outliers["speed_m_per_s"], color="red", label="possible outlier", zorder=3)
-    ax.set_title("Possible Speed and G-Force Outliers")
+    speed_outliers = suspension_outliers[suspension_outliers["possible_speed_m_per_s_outlier"]]
+    ax.scatter(speed_outliers[time_column], speed_outliers["speed_m_per_s"], color="red", label="possible speed outlier", zorder=3)
+    ax.set_title("Possible Vehicle Speed Outliers")
     ax.set_xlabel(time_column)
     ax.set_ylabel("Speed (m/s)")
     ax.legend()
@@ -1075,14 +1078,14 @@ def plot_suspension_outlier_diagram(suspension_outliers):
     plt.show()
 
     fig_g, axes_g = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
-    outliers = suspension_outliers[suspension_outliers["possible_motion_outlier"]]
     axis_specs = [
-        ("main_axis_g", "main axis g", "#16a34a"),
-        ("lateral_g", "lateral g", "#4f7cff"),
-        ("vertical_g", "vertical g", "#172554"),
+        ("main_axis_g", "possible_main_axis_g_outlier", "main axis g", "#16a34a"),
+        ("lateral_g", "possible_lateral_g_outlier", "lateral g", "#4f7cff"),
+        ("vertical_g", "possible_vertical_g_outlier", "vertical g", "#172554"),
     ]
 
-    for ax_g, (column, label, color) in zip(axes_g, axis_specs):
+    for ax_g, (column, flag_column, label, color) in zip(axes_g, axis_specs):
+        outliers = suspension_outliers[suspension_outliers[flag_column]]
         ax_g.plot(suspension_outliers[time_column], suspension_outliers[column], label=label, color=color)
         ax_g.scatter(outliers[time_column], outliers[column], color="red", marker="o", label="possible outlier", zorder=3)
         ax_g.set_ylabel("g")

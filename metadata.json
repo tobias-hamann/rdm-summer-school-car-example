@@ -34,6 +34,7 @@
       "analysis_end_s": null,
       "smoothing_window": 25,
       "outlier_z_threshold": 3.0,
+      "motion_outlier_z_threshold": 7.5,
       "speed_initial_m_per_s": 0.0,
       "parameter_smoothing_windows": [
         5,
