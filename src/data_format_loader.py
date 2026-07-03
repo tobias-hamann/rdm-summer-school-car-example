@@ -256,6 +256,208 @@ def summarize_loaded_data(loaded):
     }
 
 
+def prepare_analysis_columns(
+    df_raw,
+    time_column=None,
+    value_column=None,
+    analysis_start_s=None,
+    analysis_end_s=None,
+):
+    df = df_raw.copy()
+
+    for column in df.columns:
+        converted = pd.to_numeric(df[column], errors="coerce")
+        if converted.notna().sum() > 0:
+            df[column] = converted
+
+    numeric_columns = df.select_dtypes(include="number").columns.tolist()
+    if not numeric_columns:
+        raise ValueError("No numeric columns found. Check whether the selected file contains measurement values.")
+
+    if time_column not in df.columns:
+        time_candidates = [column for column in numeric_columns if "time" in column.lower() or "zeit" in column.lower()]
+        time_column = time_candidates[0] if time_candidates else numeric_columns[0]
+
+    if value_column is None:
+        value_candidates = [column for column in numeric_columns if column != time_column]
+        if not value_candidates:
+            raise ValueError("No value column found. Set value_column manually in the parameter cell.")
+        value_column = value_candidates[0]
+
+    missing_columns = [column for column in [time_column, value_column] if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Selected column not found: {missing_columns}. Check the parameter cell above.")
+
+    df_analysis = df[[time_column, value_column]].dropna().copy()
+    df_analysis = df_analysis.sort_values(time_column)
+
+    if analysis_start_s is not None:
+        df_analysis = df_analysis[df_analysis[time_column] >= analysis_start_s]
+    if analysis_end_s is not None:
+        df_analysis = df_analysis[df_analysis[time_column] <= analysis_end_s]
+
+    return {
+        "df_analysis": df_analysis,
+        "time_column": time_column,
+        "value_column": value_column,
+        "numeric_columns": numeric_columns,
+    }
+
+
+def detect_possible_outliers(df_analysis, value_column, outlier_z_threshold):
+    df_checked = df_analysis.copy()
+    value_mean = df_checked[value_column].mean()
+    value_std = df_checked[value_column].std(ddof=0)
+
+    if value_std == 0 or pd.isna(value_std):
+        df_checked["z_score"] = 0.0
+    else:
+        df_checked["z_score"] = (df_checked[value_column] - value_mean) / value_std
+
+    df_checked["possible_outlier"] = df_checked["z_score"].abs() > outlier_z_threshold
+
+    return {
+        "df_analysis": df_checked,
+        "value_mean": value_mean,
+        "value_std": value_std,
+        "outlier_count": int(df_checked["possible_outlier"].sum()),
+    }
+
+
+def create_time_quality_report(df_analysis, time_column):
+    time_diff = df_analysis[time_column].diff().dropna()
+
+    return pd.DataFrame(
+        {
+            "metric": [
+                "rows_used",
+                "time_min",
+                "time_max",
+                "duration",
+                "median_time_step",
+                "min_time_step",
+                "max_time_step",
+                "non_increasing_time_steps",
+            ],
+            "value": [
+                len(df_analysis),
+                df_analysis[time_column].min(),
+                df_analysis[time_column].max(),
+                df_analysis[time_column].max() - df_analysis[time_column].min(),
+                time_diff.median() if len(time_diff) else float("nan"),
+                time_diff.min() if len(time_diff) else float("nan"),
+                time_diff.max() if len(time_diff) else float("nan"),
+                int((time_diff <= 0).sum()) if len(time_diff) else float("nan"),
+            ],
+        }
+    )
+
+
+def add_smoothed_values(df_analysis, value_column, smoothing_window, output_column="smoothed"):
+    df_smoothed = df_analysis.copy()
+    df_smoothed[output_column] = (
+        df_smoothed[value_column]
+        .rolling(
+            window=smoothing_window,
+            center=True,
+            min_periods=1,
+        )
+        .mean()
+    )
+    return df_smoothed
+
+
+def compare_smoothing_windows(df_analysis, time_column, value_column, smoothing_windows):
+    comparison = df_analysis[[time_column, value_column]].copy()
+    summary_rows = []
+
+    for window in smoothing_windows:
+        column_name = f"smoothed_{window}"
+        comparison[column_name] = (
+            comparison[value_column]
+            .rolling(
+                window=window,
+                center=True,
+                min_periods=1,
+            )
+            .mean()
+        )
+        summary_rows.append(
+            {
+                "smoothing_window": window,
+                "smoothed_min": comparison[column_name].min(),
+                "smoothed_max": comparison[column_name].max(),
+                "smoothed_mean": comparison[column_name].mean(),
+                "smoothed_std": comparison[column_name].std(),
+            }
+        )
+
+    return comparison, pd.DataFrame(summary_rows)
+
+
+def summarize_analysis_results(
+    selected_data_path,
+    project_root,
+    metadata,
+    recorded_data_metadata,
+    df_analysis,
+    time_column,
+    value_column,
+    smoothing_window,
+    outlier_z_threshold,
+):
+    return pd.DataFrame(
+        {
+            "item": [
+                "dataset",
+                "measurement_type",
+                "run_name",
+                "quantity",
+                "data_stage",
+                "version",
+                "detected_format",
+                "metadata_source",
+                "time_column",
+                "value_column",
+                "rows_used",
+                "analysis_start",
+                "analysis_end",
+                "smoothing_window",
+                "outlier_z_threshold",
+                "possible_outliers",
+                "minimum_value",
+                "maximum_value",
+                "mean_value",
+                "median_value",
+                "standard_deviation",
+            ],
+            "value": [
+                str(Path(selected_data_path).relative_to(project_root)),
+                metadata.get("measurement_type"),
+                metadata.get("run_name"),
+                metadata.get("quantity"),
+                metadata.get("data_stage"),
+                metadata.get("version"),
+                recorded_data_metadata["detected_format"]["format_label"],
+                recorded_data_metadata["extracted_metadata"].get("source"),
+                time_column,
+                value_column,
+                len(df_analysis),
+                df_analysis[time_column].min(),
+                df_analysis[time_column].max(),
+                smoothing_window,
+                outlier_z_threshold,
+                int(df_analysis["possible_outlier"].sum()),
+                df_analysis[value_column].min(),
+                df_analysis[value_column].max(),
+                df_analysis[value_column].mean(),
+                df_analysis[value_column].median(),
+                df_analysis[value_column].std(),
+            ],
+        }
+    )
+
+
 def _frame_preview(frame, limit=20):
     # Convert a small DataFrame preview into plain Python records. Missing
     # values are converted to None so the result can be serialized as JSON.
