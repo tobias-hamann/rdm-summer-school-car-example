@@ -1,0 +1,518 @@
+{
+  "public_metadata": {
+    "recorded_data_path": "data/drivetrain/Example/Raw Data.csv",
+    "measurement_type": "drivetrain",
+    "run_name": "Example",
+    "quantity": "illuminance",
+    "data_stage": "raw",
+    "version": "v0.1.0",
+    "hot_storage_path": "",
+    "drivetrain": {
+      "rotor_marker": {
+        "bright_dark_cycles_per_rotation": 1
+      },
+      "first_gear_combo": {
+        "switch_position": "towards motor",
+        "settings": {
+          "towards motor": {
+            "motor_gear_teeth": 12,
+            "rotor_gear_teeth": 36
+          },
+          "towards rotor": {
+            "motor_gear_teeth": 12,
+            "rotor_gear_teeth": 12
+          }
+        }
+      },
+      "gear_combos": [
+        {
+          "name": "gear combo 2",
+          "motor_gear_teeth": 12,
+          "rotor_gear_teeth": 36
+        },
+        {
+          "name": "gear combo 3",
+          "motor_gear_teeth": 12,
+          "rotor_gear_teeth": 36
+        }
+      ]
+    }
+  },
+  "private_metadata_display": {
+    "student": {
+      "first_name": "Vorname",
+      "last_name": "Name"
+    },
+    "zenodo": {
+      "access_token": "***REDACTED***"
+    }
+  },
+  "recorded_data_metadata": {
+    "recorded_data_path": "data\\drivetrain\\Example\\Raw Data.csv",
+    "detected_format": {
+      "container_format": "csv",
+      "format_label": "csv (comma, decimal point)",
+      "delimiter": ",",
+      "decimal": ".",
+      "encoding": "utf-8-sig"
+    },
+    "metadata_source": "csv_meta_folder"
+  },
+  "analysis_parameters": {
+    "time_column": "Time (s)",
+    "value_column": "Illuminance (lx)",
+    "analysis_start_s": null,
+    "analysis_end_s": null,
+    "smoothing_window": 5,
+    "outlier_z_threshold": 3.0
+  },
+  "quality_report": [
+    {
+      "metric": "rows_used",
+      "value": 153.0
+    },
+    {
+      "metric": "time_min",
+      "value": 0.0
+    },
+    {
+      "metric": "time_max",
+      "value": 24.44789599
+    },
+    {
+      "metric": "duration",
+      "value": 24.44789599
+    },
+    {
+      "metric": "median_time_step",
+      "value": 0.1600001584999995
+    },
+    {
+      "metric": "min_time_step",
+      "value": 0.127892208
+    },
+    {
+      "metric": "max_time_step",
+      "value": 0.3199958900000013
+    },
+    {
+      "metric": "non_increasing_time_steps",
+      "value": 0.0
+    }
+  ],
+  "drivetrain_rotation": {
+    "summary": [
+      {
+        "metric": "brightness_threshold",
+        "value": 604.20601349,
+        "unit": "Illuminance (lx)"
+      },
+      {
+        "metric": "detected_rotations",
+        "value": 13.0,
+        "unit": "rotations"
+      },
+      {
+        "metric": "mean_rotor_period",
+        "value": 1.5606070030769232,
+        "unit": "s"
+      },
+      {
+        "metric": "rotor_speed",
+        "value": 0.6407763120557453,
+        "unit": "rotations/s"
+      },
+      {
+        "metric": "rotor_speed",
+        "value": 38.446578723344714,
+        "unit": "rpm"
+      },
+      {
+        "metric": "motor_to_rotor_gear_ratio",
+        "value": 0.037037037037037035,
+        "unit": "rotor rpm / motor rpm"
+      },
+      {
+        "metric": "motor_speed",
+        "value": 1038.0576255303074,
+        "unit": "rpm"
+      }
+    ],
+    "gear_table": [
+      {
+        "gear_combo": "gear combo 1 (towards motor)",
+        "motor_gear_teeth": 12,
+        "rotor_gear_teeth": 36,
+        "stage_ratio": 0.3333333333333333
+      },
+      {
+        "gear_combo": "gear combo 2",
+        "motor_gear_teeth": 12,
+        "rotor_gear_teeth": 36,
+        "stage_ratio": 0.3333333333333333
+      },
+      {
+        "gear_combo": "gear combo 3",
+        "motor_gear_teeth": 12,
+        "rotor_gear_teeth": 36,
+        "stage_ratio": 0.3333333333333333
+      }
+    ],
+    "rotations": [
+      {
+        "rotation_time": 3.327885437,
+        "rotor_period_s": 3.327885437,
+        "rotor_rpm": 18.02946679982121,
+        "motor_rpm": 486.79560359517274
+      },
+      {
+        "rotation_time": 4.767900698,
+        "rotor_period_s": 1.440015261,
+        "rotor_rpm": 41.66622509148533,
+        "motor_rpm": 1124.988077470104
+      },
+      {
+        "rotation_time": 6.367895675,
+        "rotor_period_s": 1.5999949769999997,
+        "rotor_rpm": 37.500117726932096,
+        "motor_rpm": 1012.5031786271667
+      },
+      {
+        "rotation_time": 7.647896873,
+        "rotor_period_s": 1.280001198,
+        "rotor_rpm": 46.874956127970755,
+        "motor_rpm": 1265.6238154552104
+      },
+      {
+        "rotation_time": 9.087896248,
+        "rotor_period_s": 1.4399993750000002,
+        "rotor_rpm": 41.66668475116525,
+        "motor_rpm": 1125.0004882814617
+      },
+      {
+        "rotation_time": 10.52789729,
+        "rotor_period_s": 1.4400010420000005,
+        "rotor_rpm": 41.66663651622551,
+        "motor_rpm": 1124.9991859380889
+      },
+      {
+        "rotation_time": 11.80789468,
+        "rotor_period_s": 1.2799973900000001,
+        "rotor_rpm": 46.87509558124958,
+        "motor_rpm": 1265.6275806937388
+      },
+      {
+        "rotation_time": 13.40789146,
+        "rotor_period_s": 1.5999967799999997,
+        "rotor_rpm": 37.50007546890189,
+        "motor_rpm": 1012.5020376603511
+      },
+      {
+        "rotation_time": 14.68789344,
+        "rotor_period_s": 1.2800019799999998,
+        "rotor_rpm": 46.87492749034655,
+        "motor_rpm": 1265.623042239357
+      },
+      {
+        "rotation_time": 16.12788599,
+        "rotor_period_s": 1.4399925499999995,
+        "rotor_rpm": 41.666882234911576,
+        "motor_rpm": 1125.0058203426127
+      },
+      {
+        "rotation_time": 17.56789573,
+        "rotor_period_s": 1.4400097400000007,
+        "rotor_rpm": 41.66638483986919,
+        "motor_rpm": 1124.9923906764682
+      },
+      {
+        "rotation_time": 19.00789646,
+        "rotor_period_s": 1.4400007300000013,
+        "rotor_rpm": 41.66664554399215,
+        "motor_rpm": 1124.9994296877883
+      },
+      {
+        "rotation_time": 20.28789104,
+        "rotor_period_s": 1.2799945800000003,
+        "rotor_rpm": 46.87519848716858,
+        "motor_rpm": 1265.6303591535518
+      }
+    ]
+  },
+  "motor_speed_outliers": {
+    "summary": [
+      {
+        "metric": "mean_motor_rpm",
+        "value": 1101.8685392170057
+      },
+      {
+        "metric": "motor_rpm_std",
+        "value": 197.0480714115236
+      },
+      {
+        "metric": "possible_motor_rpm_outliers",
+        "value": 1.0
+      }
+    ],
+    "rotations": [
+      {
+        "rotation_time": 3.327885437,
+        "rotor_period_s": 3.327885437,
+        "rotor_rpm": 18.02946679982121,
+        "motor_rpm": 486.79560359517274,
+        "motor_rpm_z_score": -3.1214359583215026,
+        "possible_motor_rpm_outlier": true
+      },
+      {
+        "rotation_time": 4.767900698,
+        "rotor_period_s": 1.440015261,
+        "rotor_rpm": 41.66622509148533,
+        "motor_rpm": 1124.988077470104,
+        "motor_rpm_z_score": 0.1173294317852742,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 6.367895675,
+        "rotor_period_s": 1.5999949769999997,
+        "rotor_rpm": 37.500117726932096,
+        "motor_rpm": 1012.5031786271667,
+        "motor_rpm_z_score": -0.4535206051481956,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 7.647896873,
+        "rotor_period_s": 1.280001198,
+        "rotor_rpm": 46.874956127970755,
+        "motor_rpm": 1265.6238154552104,
+        "motor_rpm_z_score": 0.8310422683417753,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 9.087896248,
+        "rotor_period_s": 1.4399993750000002,
+        "rotor_rpm": 41.66668475116525,
+        "motor_rpm": 1125.0004882814617,
+        "motor_rpm_z_score": 0.11739241545859241,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 10.52789729,
+        "rotor_period_s": 1.4400010420000005,
+        "rotor_rpm": 41.66663651622551,
+        "motor_rpm": 1124.9991859380889,
+        "motor_rpm_z_score": 0.11738580619130312,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 11.80789468,
+        "rotor_period_s": 1.2799973900000001,
+        "rotor_rpm": 46.87509558124958,
+        "motor_rpm": 1265.6275806937388,
+        "motor_rpm_z_score": 0.8310613765649686,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 13.40789146,
+        "rotor_period_s": 1.5999967799999997,
+        "rotor_rpm": 37.50007546890189,
+        "motor_rpm": 1012.5020376603511,
+        "motor_rpm_z_score": -0.4535263954449866,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 14.68789344,
+        "rotor_period_s": 1.2800019799999998,
+        "rotor_rpm": 46.87492749034655,
+        "motor_rpm": 1265.623042239357,
+        "motor_rpm_z_score": 0.8310383443457271,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 16.12788599,
+        "rotor_period_s": 1.4399925499999995,
+        "rotor_rpm": 41.666882234911576,
+        "motor_rpm": 1125.0058203426127,
+        "motor_rpm_z_score": 0.1174194751558164,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 17.56789573,
+        "rotor_period_s": 1.4400097400000007,
+        "rotor_rpm": 41.66638483986919,
+        "motor_rpm": 1124.9923906764682,
+        "motor_rpm_z_score": 0.11735132089250251,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 19.00789646,
+        "rotor_period_s": 1.4400007300000013,
+        "rotor_rpm": 41.66664554399215,
+        "motor_rpm": 1124.9994296877883,
+        "motor_rpm_z_score": 0.11738704319757091,
+        "possible_motor_rpm_outlier": false
+      },
+      {
+        "rotation_time": 20.28789104,
+        "rotor_period_s": 1.2799945800000003,
+        "rotor_rpm": 46.87519848716858,
+        "motor_rpm": 1265.6303591535518,
+        "motor_rpm_z_score": 0.8310754769811419,
+        "possible_motor_rpm_outlier": false
+      }
+    ]
+  },
+  "motor_speed_parameter_comparison": [
+    {
+      "smoothing_window": 1,
+      "detected_rotations": 14,
+      "rotor_speed_rpm": 39.83327964795165,
+      "motor_speed_rpm": 1075.4985504946947
+    },
+    {
+      "smoothing_window": 5,
+      "detected_rotations": 13,
+      "rotor_speed_rpm": 38.446578723344714,
+      "motor_speed_rpm": 1038.0576255303074
+    },
+    {
+      "smoothing_window": 15,
+      "detected_rotations": 6,
+      "rotor_speed_rpm": 17.74457479538987,
+      "motor_speed_rpm": 479.1035194755265
+    },
+    {
+      "smoothing_window": 31,
+      "detected_rotations": 1,
+      "rotor_speed_rpm": 3.0290955838482283,
+      "motor_speed_rpm": 81.78558076390217
+    }
+  ],
+  "parameter_comparison": [
+    {
+      "smoothing_window": 1,
+      "smoothed_min": 58.99500275,
+      "smoothed_max": 1367.01001,
+      "smoothed_mean": 636.2439950535947,
+      "smoothed_std": 350.61567067106637
+    },
+    {
+      "smoothing_window": 5,
+      "smoothed_min": 241.81200560400003,
+      "smoothed_max": 1199.6100586,
+      "smoothed_mean": 636.69353920817,
+      "smoothed_std": 249.0598417371834
+    },
+    {
+      "smoothing_window": 15,
+      "smoothed_min": 442.13401998,
+      "smoothed_max": 1053.5400389533334,
+      "smoothed_mean": 640.8780450377296,
+      "smoothed_std": 171.18853393374158
+    },
+    {
+      "smoothing_window": 31,
+      "smoothed_min": 474.52066409580647,
+      "smoothed_max": 985.57176591875,
+      "smoothed_mean": 640.6003694049583,
+      "smoothed_std": 133.86814810751403
+    }
+  ],
+  "result_summary": [
+    {
+      "item": "dataset",
+      "value": "data\\drivetrain\\Example\\Raw Data.csv"
+    },
+    {
+      "item": "measurement_type",
+      "value": "drivetrain"
+    },
+    {
+      "item": "run_name",
+      "value": "Example"
+    },
+    {
+      "item": "quantity",
+      "value": "illuminance"
+    },
+    {
+      "item": "data_stage",
+      "value": "raw"
+    },
+    {
+      "item": "version",
+      "value": "v0.1.0"
+    },
+    {
+      "item": "detected_format",
+      "value": "csv (comma, decimal point)"
+    },
+    {
+      "item": "metadata_source",
+      "value": "csv_meta_folder"
+    },
+    {
+      "item": "time_column",
+      "value": "Time (s)"
+    },
+    {
+      "item": "value_column",
+      "value": "Illuminance (lx)"
+    },
+    {
+      "item": "rows_used",
+      "value": 153
+    },
+    {
+      "item": "analysis_start",
+      "value": 0.0
+    },
+    {
+      "item": "analysis_end",
+      "value": 24.44789599
+    },
+    {
+      "item": "smoothing_window",
+      "value": 5
+    },
+    {
+      "item": "outlier_z_threshold",
+      "value": 3.0
+    },
+    {
+      "item": "possible_outliers",
+      "value": 0
+    },
+    {
+      "item": "minimum_value",
+      "value": 58.99500275
+    },
+    {
+      "item": "maximum_value",
+      "value": 1367.01001
+    },
+    {
+      "item": "mean_value",
+      "value": 636.2439950535947
+    },
+    {
+      "item": "median_value",
+      "value": 661.0275269
+    },
+    {
+      "item": "standard_deviation",
+      "value": 350.61567067106637
+    },
+    {
+      "item": "rotor_speed_rpm",
+      "value": 38.446578723344714
+    },
+    {
+      "item": "motor_speed_rpm",
+      "value": 1038.0576255303074
+    },
+    {
+      "item": "motor_to_rotor_gear_ratio",
+      "value": 0.037037037037037035
+    }
+  ]
+}

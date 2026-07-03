@@ -428,9 +428,9 @@ def calculate_drivetrain_rotation(df_analysis, time_column, value_column, metada
             {"metric": "detected_rotations", "value": int(len(rotation_periods)), "unit": "rotations"},
             {"metric": "mean_rotor_period", "value": rotation_periods.mean(), "unit": "s"},
             {"metric": "rotor_speed", "value": rotor_rotation_hz, "unit": "rotations/s"},
-            {"metric": "rotor_speed", "value": rotor_rpm, "unit": "rpm"},
+            {"metric": "rotor_speed_mean", "value": rotor_rpm, "unit": "rpm"},
             {"metric": "motor_to_rotor_gear_ratio", "value": motor_to_rotor_ratio, "unit": "rotor rpm / motor rpm"},
-            {"metric": "motor_speed", "value": motor_rpm, "unit": "rpm"},
+            {"metric": "motor_speed_mean", "value": motor_rpm, "unit": "rpm"},
         ]
     )
 
@@ -633,7 +633,7 @@ def summarize_analysis_results(
     extra_items = []
     extra_values = []
     if drivetrain_rotation is not None:
-        extra_items = ["rotor_speed_rpm", "motor_speed_rpm", "motor_to_rotor_gear_ratio"]
+        extra_items = ["rotor_speed_mean_rpm", "motor_speed_mean_rpm", "motor_to_rotor_gear_ratio"]
         extra_values = [
             drivetrain_rotation.get("rotor_rpm"),
             drivetrain_rotation.get("motor_rpm"),

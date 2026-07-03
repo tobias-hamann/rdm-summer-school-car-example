@@ -77,6 +77,10 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+.jupyter/
+.matplotlib/
+.tmp_mpl/
+.ipython/
 
 # IPython
 profile_default/
