@@ -7,7 +7,6 @@ DEFAULT_RECORDED_DATA_PATH = "data/drivetrain/Example/Raw Data.csv"
 DEFAULT_MEASUREMENT_TYPE = "drivetrain"
 PUBLIC_METADATA_FILENAME = "metadata.json"
 PRIVATE_METADATA_FILENAME = "private_metadata.json"
-TOKEN_REDACTION = "***REDACTED***"
 
 
 def load_json_file(path, default=None):
@@ -27,6 +26,7 @@ def write_json_file(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file:
         json.dump(data, file, indent=2)
+        file.write("\n")
 
 
 def public_metadata_path(project_root=None):
@@ -35,8 +35,7 @@ def public_metadata_path(project_root=None):
 
 
 def private_metadata_path(project_root=None):
-    # Private metadata contains personal data and access tokens and must remain
-    # ignored by git.
+    # Private metadata contains personal data and must remain ignored by git.
     return _project_root(project_root) / PRIVATE_METADATA_FILENAME
 
 
@@ -88,8 +87,9 @@ def default_analysis_metadata():
             "vertical_axis_column": "Linear Acceleration z (m/s^2)",
             "analysis_start_s": None,
             "analysis_end_s": None,
-            "smoothing_window": 25,
+            "smoothing_window": 100,
             "outlier_z_threshold": 3.0,
+            "motion_outlier_z_threshold": 7.5,
             "speed_initial_m_per_s": 0.0,
             "parameter_smoothing_windows": [5, 25, 75, 151],
             "plot_raw_values": True,
@@ -120,7 +120,7 @@ def default_drivetrain_metadata():
                     "rotor_gear_teeth": 36,
                 },
                 "towards rotor": {
-                    "motor_gear_teeth": 36,
+                    "motor_gear_teeth": 12,
                     "rotor_gear_teeth": 12,
                 },
             },
@@ -145,9 +145,6 @@ def default_private_metadata():
         "student": {
             "first_name": "Vorname",
             "last_name": "Name",
-        },
-        "zenodo": {
-            "access_token": "ZENODO_TOKEN_HERE",
         },
     }
 
@@ -193,9 +190,24 @@ def save_public_metadata(metadata, project_root=None, metadata_file=None):
     return path
 
 
+def merge_metadata_updates(existing, updates):
+    # Overlay update values onto existing metadata. None values in the updates
+    # keep the existing entry; nested dictionaries are merged recursively.
+    # Lists and plain values replace the existing entry completely.
+    merged = dict(existing)
+    for key, value in updates.items():
+        if value is None:
+            continue
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_metadata_updates(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def load_private_metadata(project_root=None, private_metadata_file=None, create_if_missing=False):
-    # Load student-specific metadata. The token should be used for API calls but
-    # should not be displayed without redaction.
+    # Load student-specific metadata. It stays out of git and out of shared
+    # analysis outputs unless explicitly included.
     path = Path(private_metadata_file) if private_metadata_file else private_metadata_path(project_root)
     metadata = load_json_file(path, default_private_metadata())
 
@@ -275,15 +287,6 @@ def apply_recorded_data_path_override(metadata, recorded_data_path_override=None
     return metadata
 
 
-def redacted_private_metadata(private_metadata):
-    # Return a display-safe copy with access tokens hidden.
-    redacted = json.loads(json.dumps(private_metadata))
-    zenodo = redacted.setdefault("zenodo", {})
-    if zenodo.get("access_token"):
-        zenodo["access_token"] = TOKEN_REDACTION
-    return redacted
-
-
 def load_metadata_context(project_root=None, create_private_if_missing=False):
     # Convenience wrapper for notebooks that need public pointer metadata,
     # private student metadata, and the resolved data path together.
@@ -298,7 +301,6 @@ def load_metadata_context(project_root=None, create_private_if_missing=False):
         "private_metadata_path": private_metadata_path(root),
         "public_metadata": public_metadata,
         "private_metadata": private_metadata,
-        "private_metadata_display": redacted_private_metadata(private_metadata),
         "selected_data_path": selected_data_path,
     }
 
@@ -320,8 +322,7 @@ def summarize_metadata_context(context):
         "suspension": context["public_metadata"].get("suspension", {}),
         "drivetrain": context["public_metadata"].get("drivetrain", {}),
         "selected_data_path": _string_path(context["selected_data_path"]),
-        "student": context["private_metadata_display"].get("student", {}),
-        "zenodo": context["private_metadata_display"].get("zenodo", {}),
+        "student": context["private_metadata"].get("student", {}),
     }
 
 
@@ -335,7 +336,7 @@ def _string_path(path):
 
 def main():
     # Minimal CLI for checking the currently selected dataset and private
-    # metadata without printing the Zenodo token.
+    # metadata.
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--create-private-if-missing", action="store_true")

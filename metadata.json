@@ -8,8 +8,8 @@
   "hot_storage_path": "",
   "analysis": {
     "drivetrain_illuminance": {
-      "time_column": null,
-      "value_column": null,
+      "time_column": "Time (s)",
+      "value_column": "Illuminance (lx)",
       "analysis_start_s": null,
       "analysis_end_s": null,
       "smoothing_window": 5,
@@ -25,14 +25,14 @@
       "plot_smoothed_values": true
     },
     "suspension_acceleration": {
-      "time_column": null,
+      "time_column": "Time (s)",
       "value_column": "Absolute acceleration (m/s^2)",
       "main_axis_column": "Linear Acceleration x (m/s^2)",
       "lateral_axis_column": "Linear Acceleration y (m/s^2)",
       "vertical_axis_column": "Linear Acceleration z (m/s^2)",
       "analysis_start_s": null,
       "analysis_end_s": null,
-      "smoothing_window": 25,
+      "smoothing_window": 100,
       "outlier_z_threshold": 3.0,
       "motion_outlier_z_threshold": 7.5,
       "speed_initial_m_per_s": 0.0,
