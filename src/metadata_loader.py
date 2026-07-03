@@ -48,6 +48,8 @@ def default_public_metadata(
     data_stage="raw",
     version="v0.1.0",
     hot_storage_path="",
+    analysis=None,
+    suspension=None,
     drivetrain=None,
 ):
     return {
@@ -58,7 +60,50 @@ def default_public_metadata(
         "data_stage": data_stage,
         "version": version,
         "hot_storage_path": hot_storage_path,
+        "analysis": analysis or default_analysis_metadata(),
+        "suspension": suspension or default_suspension_metadata(),
         "drivetrain": drivetrain or default_drivetrain_metadata(),
+    }
+
+
+def default_analysis_metadata():
+    return {
+        "drivetrain_illuminance": {
+            "time_column": None,
+            "value_column": None,
+            "analysis_start_s": None,
+            "analysis_end_s": None,
+            "smoothing_window": 5,
+            "outlier_z_threshold": 3.0,
+            "motor_speed_outlier_z_threshold": 3.0,
+            "motor_speed_smoothing_windows": [1, 5, 15, 31],
+            "plot_raw_values": True,
+            "plot_smoothed_values": True,
+        },
+        "suspension_acceleration": {
+            "time_column": None,
+            "value_column": "Absolute acceleration (m/s^2)",
+            "main_axis_column": "Linear Acceleration x (m/s^2)",
+            "lateral_axis_column": "Linear Acceleration y (m/s^2)",
+            "vertical_axis_column": "Linear Acceleration z (m/s^2)",
+            "analysis_start_s": None,
+            "analysis_end_s": None,
+            "smoothing_window": 25,
+            "outlier_z_threshold": 3.0,
+            "speed_initial_m_per_s": 0.0,
+            "parameter_smoothing_windows": [5, 25, 75, 151],
+            "plot_raw_values": True,
+            "plot_smoothed_values": True,
+        },
+    }
+
+
+def default_suspension_metadata():
+    return {
+        "acceleration_unit": "m/s^2",
+        "speed_axis_description": "main vehicle acceleration direction",
+        "lateral_axis_description": "sideways acceleration",
+        "vertical_axis_description": "vertical acceleration",
     }
 
 
@@ -120,6 +165,8 @@ def load_public_metadata(project_root=None, metadata_file=None):
     metadata.setdefault("data_stage", "raw")
     metadata.setdefault("version", "v0.1.0")
     metadata.setdefault("hot_storage_path", "")
+    metadata.setdefault("analysis", default_analysis_metadata())
+    metadata.setdefault("suspension", default_suspension_metadata())
     metadata.setdefault("drivetrain", default_drivetrain_metadata())
     return metadata
 
@@ -138,6 +185,8 @@ def save_public_metadata(metadata, project_root=None, metadata_file=None):
             data_stage=metadata.get("data_stage", "raw"),
             version=metadata.get("version", "v0.1.0"),
             hot_storage_path=metadata.get("hot_storage_path", ""),
+            analysis=metadata.get("analysis", default_analysis_metadata()),
+            suspension=metadata.get("suspension", default_suspension_metadata()),
             drivetrain=metadata.get("drivetrain", default_drivetrain_metadata()),
         ),
     )
@@ -267,6 +316,8 @@ def summarize_metadata_context(context):
         "data_stage": context["public_metadata"].get("data_stage"),
         "version": context["public_metadata"].get("version"),
         "hot_storage_path": context["public_metadata"].get("hot_storage_path"),
+        "analysis": context["public_metadata"].get("analysis", {}),
+        "suspension": context["public_metadata"].get("suspension", {}),
         "drivetrain": context["public_metadata"].get("drivetrain", {}),
         "selected_data_path": _string_path(context["selected_data_path"]),
         "student": context["private_metadata_display"].get("student", {}),

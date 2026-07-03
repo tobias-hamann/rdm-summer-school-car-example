@@ -1,11 +1,56 @@
 {
-  "recorded_data_path": "data/drivetrain/Example/Raw Data.csv",
-  "measurement_type": "drivetrain",
+  "recorded_data_path": "data/suspension/Example/Beschleunigung ohne g.xls",
+  "measurement_type": "suspension",
   "run_name": "Example",
-  "quantity": "illuminance",
+  "quantity": "acceleration",
   "data_stage": "raw",
   "version": "v0.1.0",
   "hot_storage_path": "",
+  "analysis": {
+    "drivetrain_illuminance": {
+      "time_column": null,
+      "value_column": null,
+      "analysis_start_s": null,
+      "analysis_end_s": null,
+      "smoothing_window": 5,
+      "outlier_z_threshold": 3.0,
+      "motor_speed_outlier_z_threshold": 3.0,
+      "motor_speed_smoothing_windows": [
+        1,
+        5,
+        15,
+        31
+      ],
+      "plot_raw_values": true,
+      "plot_smoothed_values": true
+    },
+    "suspension_acceleration": {
+      "time_column": null,
+      "value_column": "Absolute acceleration (m/s^2)",
+      "main_axis_column": "Linear Acceleration x (m/s^2)",
+      "lateral_axis_column": "Linear Acceleration y (m/s^2)",
+      "vertical_axis_column": "Linear Acceleration z (m/s^2)",
+      "analysis_start_s": null,
+      "analysis_end_s": null,
+      "smoothing_window": 25,
+      "outlier_z_threshold": 3.0,
+      "speed_initial_m_per_s": 0.0,
+      "parameter_smoothing_windows": [
+        5,
+        25,
+        75,
+        151
+      ],
+      "plot_raw_values": true,
+      "plot_smoothed_values": true
+    }
+  },
+  "suspension": {
+    "acceleration_unit": "m/s^2",
+    "speed_axis_description": "main vehicle acceleration direction",
+    "lateral_axis_description": "sideways acceleration",
+    "vertical_axis_description": "vertical acceleration"
+  },
   "drivetrain": {
     "rotor_marker": {
       "bright_dark_cycles_per_rotation": 1

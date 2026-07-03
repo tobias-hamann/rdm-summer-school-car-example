@@ -256,6 +256,190 @@ def summarize_loaded_data(loaded):
     }
 
 
+def get_analysis_key(metadata):
+    measurement_type = metadata.get("measurement_type", "measurement")
+    quantity = metadata.get("quantity", "measurement")
+    return f"{measurement_type}_{quantity}"
+
+
+def get_analysis_config(metadata, df_raw=None):
+    analysis_key = get_analysis_key(metadata)
+    all_configs = metadata.get("analysis", {})
+    config = dict(all_configs.get(analysis_key, {}))
+
+    if not config:
+        config = {
+            "time_column": None,
+            "value_column": None,
+            "analysis_start_s": None,
+            "analysis_end_s": None,
+            "smoothing_window": 5,
+            "outlier_z_threshold": 3.0,
+            "plot_raw_values": True,
+            "plot_smoothed_values": True,
+        }
+
+    if df_raw is not None:
+        columns = df_raw.columns.astype(str).tolist()
+        numeric_like = _numeric_candidate_columns(df_raw)
+        if config.get("time_column") not in columns:
+            time_candidates = [column for column in columns if "time" in column.lower() or "zeit" in column.lower()]
+            config["time_column"] = time_candidates[0] if time_candidates else numeric_like[0]
+
+        if analysis_key == "suspension_acceleration":
+            config["main_axis_column"] = _existing_or_first_match(
+                config.get("main_axis_column"),
+                columns,
+                ["linear acceleration x", "acceleration x", "x (m/s"],
+            )
+            config["lateral_axis_column"] = _existing_or_first_match(
+                config.get("lateral_axis_column"),
+                columns,
+                ["linear acceleration y", "acceleration y", "y (m/s"],
+            )
+            config["vertical_axis_column"] = _existing_or_first_match(
+                config.get("vertical_axis_column"),
+                columns,
+                ["linear acceleration z", "acceleration z", "z (m/s"],
+            )
+            config["value_column"] = _existing_or_first_match(
+                config.get("value_column"),
+                columns,
+                ["absolute acceleration", config.get("main_axis_column", "")],
+            )
+        elif config.get("value_column") not in columns:
+            value_candidates = [column for column in numeric_like if column != config["time_column"]]
+            config["value_column"] = value_candidates[0] if value_candidates else numeric_like[0]
+
+    return config
+
+
+def prepare_measurement_analysis(df_raw, metadata):
+    config = get_analysis_config(metadata, df_raw)
+    analysis_key = get_analysis_key(metadata)
+
+    df = df_raw.copy()
+    for column in df.columns:
+        converted = pd.to_numeric(df[column], errors="coerce")
+        if converted.notna().sum() > 0:
+            df[column] = converted
+
+    numeric_columns = df.select_dtypes(include="number").columns.tolist()
+    required_columns = [config["time_column"], config["value_column"]]
+    if analysis_key == "suspension_acceleration":
+        required_columns.extend(
+            [
+                config["main_axis_column"],
+                config["lateral_axis_column"],
+                config["vertical_axis_column"],
+            ]
+        )
+    required_columns = list(dict.fromkeys(required_columns))
+
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Selected analysis column not found: {missing_columns}. Check metadata.json.")
+
+    df_analysis = df[required_columns].dropna().copy()
+    df_analysis = df_analysis.sort_values(config["time_column"])
+
+    if config.get("analysis_start_s") is not None:
+        df_analysis = df_analysis[df_analysis[config["time_column"]] >= config["analysis_start_s"]]
+    if config.get("analysis_end_s") is not None:
+        df_analysis = df_analysis[df_analysis[config["time_column"]] <= config["analysis_end_s"]]
+
+    df_analysis = add_smoothed_values(
+        df_analysis,
+        config["value_column"],
+        config.get("smoothing_window", 5),
+        output_column="smoothed",
+    )
+
+    if analysis_key == "suspension_acceleration":
+        for axis_name, column in [
+            ("main_axis", config["main_axis_column"]),
+            ("lateral_axis", config["lateral_axis_column"]),
+            ("vertical_axis", config["vertical_axis_column"]),
+        ]:
+            df_analysis = add_smoothed_values(
+                df_analysis,
+                column,
+                config.get("smoothing_window", 25),
+                output_column=f"{axis_name}_smoothed",
+            )
+
+    return {
+        "analysis_key": analysis_key,
+        "measurement_type": metadata.get("measurement_type"),
+        "quantity": metadata.get("quantity"),
+        "config": config,
+        "df_analysis": df_analysis,
+        "time_column": config["time_column"],
+        "value_column": config["value_column"],
+        "numeric_columns": numeric_columns,
+    }
+
+
+def analysis_config_table(analysis_context):
+    config = analysis_context["config"]
+    return pd.DataFrame(
+        [{"parameter": key, "value": value} for key, value in config.items()]
+    )
+
+
+def get_analysis_story(analysis_context):
+    if analysis_context["analysis_key"] == "drivetrain_illuminance":
+        return {
+            "mode": "Drivetrain - Illuminance",
+            "section_6": (
+                "This analysis checks time-step quality, smooths the light signal, marks possible signal outliers, "
+                "detects bright/dim cycles as rotor rotations, calculates motor speed from gear metadata, and compares "
+                "how smoothing changes the motor-speed estimate."
+            ),
+            "primary_signal": "The raw and smoothed illuminance signal is used to find bright/dim transitions.",
+            "specialized": "One bright and one dim phase together count as one rotor rotation.",
+            "outliers": "Signal outliers may be sensor artefacts or real changes in the light pattern.",
+            "parameter_comparison": "The parameter comparison checks how smoothing changes the calculated motor speed.",
+        }
+
+    if analysis_context["analysis_key"] == "suspension_acceleration":
+        return {
+            "mode": "Suspension - Acceleration",
+            "section_6": (
+                "This analysis checks time-step quality, smooths all acceleration axes, marks possible acceleration "
+                "outliers, integrates the configured main acceleration axis to estimate vehicle speed, and calculates "
+                "main, lateral, and vertical G-forces over time."
+            ),
+            "primary_signal": "The acceleration axes are plotted first so the main, lateral, and vertical movement are visible.",
+            "specialized": "Vehicle speed is estimated from the configured main acceleration axis.",
+            "outliers": "Acceleration, speed, and G-force outliers should be checked against the physical run.",
+            "parameter_comparison": "The parameter comparison checks how smoothing changes all acceleration axes, speed, and G-force estimates.",
+        }
+
+    return {
+        "mode": analysis_context["analysis_key"],
+        "section_6": "This analysis uses the mode configured in metadata.json.",
+        "primary_signal": "The selected measurement signal is plotted.",
+        "specialized": "No specialized analysis is configured for this mode.",
+        "outliers": "Possible outliers are marked from the selected value column.",
+        "parameter_comparison": "The parameter comparison checks the selected smoothing windows.",
+    }
+
+
+def display_analysis_story(analysis_context):
+    story = get_analysis_story(analysis_context)
+    return pd.DataFrame(
+        [
+            {"item": "mode", "description": story["mode"]},
+            {"item": "section_6", "description": story["section_6"]},
+            {"item": "primary_signal", "description": story["primary_signal"]},
+            {"item": "specialized_analysis", "description": story["specialized"]},
+            {"item": "outliers", "description": story["outliers"]},
+            {"item": "parameter_comparison", "description": story["parameter_comparison"]},
+        ]
+    )
+
+
 def prepare_analysis_columns(
     df_raw,
     time_column=None,
@@ -393,6 +577,173 @@ def compare_smoothing_windows(df_analysis, time_column, value_column, smoothing_
         )
 
     return comparison, pd.DataFrame(summary_rows)
+
+
+def plot_primary_measurement(analysis_context):
+    import matplotlib.pyplot as plt
+
+    df_analysis = analysis_context["df_analysis"]
+    config = analysis_context["config"]
+    time_column = analysis_context["time_column"]
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    if analysis_context["analysis_key"] == "suspension_acceleration":
+        for column, smoothed_column, label in [
+            (config["main_axis_column"], "main_axis_smoothed", "main axis"),
+            (config["lateral_axis_column"], "lateral_axis_smoothed", "lateral axis"),
+            (config["vertical_axis_column"], "vertical_axis_smoothed", "vertical axis"),
+        ]:
+            ax.plot(df_analysis[time_column], df_analysis[column], label=label, alpha=0.6)
+            ax.plot(df_analysis[time_column], df_analysis[smoothed_column], label=f"{label} smoothed", linewidth=2)
+        ax.set_title("Raw and Smoothed Acceleration Axes")
+        ax.set_ylabel("Acceleration (m/s^2)")
+    else:
+        if config.get("plot_raw_values", True):
+            ax.plot(
+                df_analysis[time_column],
+                df_analysis[analysis_context["value_column"]],
+                label="raw values",
+                alpha=0.45,
+            )
+        if config.get("plot_smoothed_values", True):
+            ax.plot(
+                df_analysis[time_column],
+                df_analysis["smoothed"],
+                label=f"smoothed, window={config.get('smoothing_window', 5)}",
+                linewidth=2,
+            )
+        ax.set_title("Measurement Values Over Time")
+        ax.set_ylabel(analysis_context["value_column"])
+
+    ax.set_xlabel(time_column)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.show()
+    return fig, ax
+
+
+def compare_primary_signal_parameters(analysis_context, smoothing_windows):
+    if analysis_context["analysis_key"] != "suspension_acceleration":
+        return compare_smoothing_windows(
+            analysis_context["df_analysis"],
+            analysis_context["time_column"],
+            analysis_context["value_column"],
+            smoothing_windows,
+        )[1]
+
+    config = analysis_context["config"]
+    rows = []
+    for window in smoothing_windows:
+        for axis_name, column in [
+            ("main_axis", config["main_axis_column"]),
+            ("lateral_axis", config["lateral_axis_column"]),
+            ("vertical_axis", config["vertical_axis_column"]),
+        ]:
+            smoothed = (
+                analysis_context["df_analysis"][column]
+                .rolling(window=window, center=True, min_periods=1)
+                .mean()
+            )
+            rows.append(
+                {
+                    "smoothing_window_rows": window,
+                    "axis": axis_name,
+                    "column": column,
+                    "smoothed_min": smoothed.min(),
+                    "smoothed_max": smoothed.max(),
+                    "smoothed_mean": smoothed.mean(),
+                    "smoothed_std": smoothed.std(),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def run_specialized_analysis(analysis_context, metadata):
+    if analysis_context["analysis_key"] == "drivetrain_illuminance":
+        drivetrain_rotation = calculate_drivetrain_rotation(
+            analysis_context["df_analysis"],
+            analysis_context["time_column"],
+            analysis_context["value_column"],
+            metadata,
+        )
+        motor_speed_rotations, motor_speed_outlier_summary = detect_motor_speed_outliers(
+            drivetrain_rotation,
+            z_threshold=analysis_context["config"].get("motor_speed_outlier_z_threshold", 3.0),
+        )
+        motor_speed_parameter_comparison = compare_motor_speed_parameters(
+            analysis_context["df_analysis"],
+            analysis_context["time_column"],
+            analysis_context["value_column"],
+            metadata,
+            analysis_context["config"].get("motor_speed_smoothing_windows", [1, 5, 15, 31]),
+        )
+        return {
+            "analysis_key": analysis_context["analysis_key"],
+            "summary": drivetrain_rotation["summary"],
+            "drivetrain_rotation": drivetrain_rotation,
+            "mode_outlier_table": motor_speed_rotations,
+            "mode_outlier_summary": motor_speed_outlier_summary,
+            "parameter_comparison": motor_speed_parameter_comparison,
+        }
+
+    if analysis_context["analysis_key"] == "suspension_acceleration":
+        suspension_motion = calculate_suspension_motion(analysis_context)
+        suspension_outliers, suspension_outlier_summary = detect_suspension_motion_outliers(
+            suspension_motion,
+            z_threshold=analysis_context["config"].get("outlier_z_threshold", 3.0),
+        )
+        parameter_comparison = compare_suspension_parameters(
+            analysis_context,
+            analysis_context["config"].get("parameter_smoothing_windows", [5, 25, 75, 151]),
+        )
+        return {
+            "analysis_key": analysis_context["analysis_key"],
+            "summary": suspension_motion["summary"],
+            "suspension_motion": suspension_motion,
+            "mode_outlier_table": suspension_outliers,
+            "mode_outlier_summary": suspension_outlier_summary,
+            "parameter_comparison": parameter_comparison,
+        }
+
+    return {
+        "analysis_key": analysis_context["analysis_key"],
+        "summary": pd.DataFrame([{"metric": "specialized_analysis", "value": "not configured"}]),
+        "mode_outlier_table": pd.DataFrame(),
+        "mode_outlier_summary": pd.DataFrame(),
+        "parameter_comparison": pd.DataFrame(),
+    }
+
+
+def plot_specialized_analysis(specialized_analysis):
+    if specialized_analysis["analysis_key"] == "drivetrain_illuminance":
+        plot_motor_speed_diagram(specialized_analysis["drivetrain_rotation"])
+        return
+
+    if specialized_analysis["analysis_key"] == "suspension_acceleration":
+        plot_suspension_speed_diagram(specialized_analysis["suspension_motion"])
+        plot_suspension_g_force_diagrams(specialized_analysis["suspension_motion"])
+        return
+
+
+def plot_mode_outliers(specialized_analysis):
+    if specialized_analysis["analysis_key"] == "drivetrain_illuminance":
+        plot_motor_speed_outlier_diagram(specialized_analysis["mode_outlier_table"])
+        return
+
+    if specialized_analysis["analysis_key"] == "suspension_acceleration":
+        plot_suspension_outlier_diagram(specialized_analysis["mode_outlier_table"])
+        return
+
+
+def plot_mode_parameter_comparison(specialized_analysis):
+    if specialized_analysis["analysis_key"] == "drivetrain_illuminance":
+        plot_motor_speed_parameter_comparison(specialized_analysis["parameter_comparison"])
+        return
+
+    if specialized_analysis["analysis_key"] == "suspension_acceleration":
+        plot_suspension_parameter_comparison(specialized_analysis["parameter_comparison"])
+        return
 
 
 def calculate_drivetrain_rotation(df_analysis, time_column, value_column, metadata, signal_column="smoothed"):
@@ -580,6 +931,227 @@ def plot_motor_speed_outlier_diagram(motor_speed_rotations):
     return fig, ax
 
 
+def calculate_suspension_motion(analysis_context):
+    config = analysis_context["config"]
+    df_analysis = analysis_context["df_analysis"].copy()
+    time_column = analysis_context["time_column"]
+    main_axis = config["main_axis_column"]
+    lateral_axis = config["lateral_axis_column"]
+    vertical_axis = config["vertical_axis_column"]
+
+    dt = df_analysis[time_column].diff().fillna(0)
+    main_acceleration = df_analysis["main_axis_smoothed"] if "main_axis_smoothed" in df_analysis.columns else df_analysis[main_axis]
+    lateral_acceleration = df_analysis["lateral_axis_smoothed"] if "lateral_axis_smoothed" in df_analysis.columns else df_analysis[lateral_axis]
+    vertical_acceleration = df_analysis["vertical_axis_smoothed"] if "vertical_axis_smoothed" in df_analysis.columns else df_analysis[vertical_axis]
+    previous_acceleration = main_acceleration.shift(fill_value=main_acceleration.iloc[0])
+    speed_increment = ((main_acceleration + previous_acceleration) / 2) * dt
+    df_motion = df_analysis.copy()
+    df_motion["speed_m_per_s"] = config.get("speed_initial_m_per_s", 0.0) + speed_increment.cumsum()
+    df_motion["speed_km_per_h"] = df_motion["speed_m_per_s"] * 3.6
+    df_motion["main_axis_g"] = main_acceleration / 9.80665
+    df_motion["lateral_g"] = lateral_acceleration / 9.80665
+    df_motion["vertical_g"] = vertical_acceleration / 9.80665
+
+    summary = pd.DataFrame(
+        [
+            {"metric": "max_speed", "value": df_motion["speed_m_per_s"].max(), "unit": "m/s"},
+            {"metric": "max_speed", "value": df_motion["speed_km_per_h"].max(), "unit": "km/h"},
+            {"metric": "max_abs_main_axis_g", "value": df_motion["main_axis_g"].abs().max(), "unit": "g"},
+            {"metric": "max_abs_lateral_g", "value": df_motion["lateral_g"].abs().max(), "unit": "g"},
+            {"metric": "max_abs_vertical_g", "value": df_motion["vertical_g"].abs().max(), "unit": "g"},
+        ]
+    )
+
+    return {
+        "summary": summary,
+        "motion": df_motion,
+        "main_axis_column": main_axis,
+        "lateral_axis_column": lateral_axis,
+        "vertical_axis_column": vertical_axis,
+    }
+
+
+def plot_suspension_speed_diagram(suspension_motion):
+    import matplotlib.pyplot as plt
+
+    motion = suspension_motion["motion"]
+    time_column = "Time (s)" if "Time (s)" in motion.columns else motion.columns[0]
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(motion[time_column], motion["speed_m_per_s"], label="speed", color="#172554")
+    ax.set_title("Estimated Vehicle Speed")
+    ax.set_xlabel(time_column)
+    ax.set_ylabel("Speed (m/s)")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.show()
+    return fig, ax
+
+
+def plot_suspension_g_force_diagrams(suspension_motion):
+    import matplotlib.pyplot as plt
+
+    motion = suspension_motion["motion"]
+    time_column = "Time (s)" if "Time (s)" in motion.columns else motion.columns[0]
+    fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
+    axis_specs = [
+        ("main_axis_g", "main axis g", "#16a34a"),
+        ("lateral_g", "lateral g", "#4f7cff"),
+        ("vertical_g", "vertical g", "#172554"),
+    ]
+
+    for ax, (column, label, color) in zip(axes, axis_specs):
+        ax.plot(motion[time_column], motion[column], label=label, color=color)
+        ax.set_ylabel("g")
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc="upper left")
+
+    axes[0].set_title("Acceleration Axes as G-Forces")
+    axes[-1].set_xlabel(time_column)
+    fig.tight_layout()
+    plt.show()
+    return fig, axes
+
+
+def detect_suspension_motion_outliers(suspension_motion, z_threshold=3.0):
+    motion = suspension_motion["motion"].copy()
+    outlier_columns = ["speed_m_per_s", "main_axis_g", "lateral_g", "vertical_g"]
+    flags = []
+
+    for column in outlier_columns:
+        mean = motion[column].mean()
+        std = motion[column].std(ddof=0)
+        z_column = f"{column}_z_score"
+        flag_column = f"possible_{column}_outlier"
+        if std == 0 or pd.isna(std):
+            motion[z_column] = 0.0
+        else:
+            motion[z_column] = (motion[column] - mean) / std
+        motion[flag_column] = motion[z_column].abs() > z_threshold
+        flags.append(flag_column)
+
+    motion["possible_motion_outlier"] = motion[flags].any(axis=1)
+    summary = pd.DataFrame(
+        [{"metric": flag, "value": int(motion[flag].sum())} for flag in flags]
+        + [{"metric": "possible_motion_outliers", "value": int(motion["possible_motion_outlier"].sum())}]
+    )
+    return motion, summary
+
+
+def plot_suspension_outlier_diagram(suspension_outliers):
+    import matplotlib.pyplot as plt
+
+    time_column = "Time (s)" if "Time (s)" in suspension_outliers.columns else suspension_outliers.columns[0]
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(suspension_outliers[time_column], suspension_outliers["speed_m_per_s"], label="speed", color="#172554")
+    outliers = suspension_outliers[suspension_outliers["possible_motion_outlier"]]
+    ax.scatter(outliers[time_column], outliers["speed_m_per_s"], color="red", label="possible outlier", zorder=3)
+    ax.set_title("Possible Speed and G-Force Outliers")
+    ax.set_xlabel(time_column)
+    ax.set_ylabel("Speed (m/s)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.show()
+
+    fig_g, axes_g = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
+    outliers = suspension_outliers[suspension_outliers["possible_motion_outlier"]]
+    axis_specs = [
+        ("main_axis_g", "main axis g", "#16a34a"),
+        ("lateral_g", "lateral g", "#4f7cff"),
+        ("vertical_g", "vertical g", "#172554"),
+    ]
+
+    for ax_g, (column, label, color) in zip(axes_g, axis_specs):
+        ax_g.plot(suspension_outliers[time_column], suspension_outliers[column], label=label, color=color)
+        ax_g.scatter(outliers[time_column], outliers[column], color="red", marker="o", label="possible outlier", zorder=3)
+        ax_g.set_ylabel("g")
+        ax_g.legend(loc="upper left")
+        ax_g.grid(True, alpha=0.3)
+
+    axes_g[0].set_title("Possible G-Force Outliers by Axis")
+    axes_g[-1].set_xlabel(time_column)
+    fig_g.tight_layout()
+    plt.show()
+    return (fig, ax), (fig_g, axes_g)
+
+
+def compare_suspension_parameters(analysis_context, smoothing_windows):
+    rows = []
+    config = analysis_context["config"]
+    for window in smoothing_windows:
+        scenario = dict(analysis_context)
+        scenario_config = dict(config)
+        scenario_config["smoothing_window"] = window
+        scenario_df = analysis_context["df_analysis"].copy()
+        for axis_name, column in [
+            ("main_axis", config["main_axis_column"]),
+            ("lateral_axis", config["lateral_axis_column"]),
+            ("vertical_axis", config["vertical_axis_column"]),
+        ]:
+            scenario_df = add_smoothed_values(
+                scenario_df,
+                column,
+                window,
+                output_column=f"{axis_name}_smoothed",
+            )
+        scenario["config"] = scenario_config
+        scenario["df_analysis"] = scenario_df
+        motion = calculate_suspension_motion(scenario)["motion"]
+        rows.append(
+            {
+                "smoothing_window_rows": window,
+                "max_speed_m_per_s": motion["speed_m_per_s"].max(),
+                "max_speed_km_per_h": motion["speed_km_per_h"].max(),
+                "max_abs_main_axis_g": motion["main_axis_g"].abs().max(),
+                "max_abs_lateral_g": motion["lateral_g"].abs().max(),
+                "max_abs_vertical_g": motion["vertical_g"].abs().max(),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def plot_suspension_parameter_comparison(parameter_comparison):
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_main_axis_g"], marker="o", label="main axis g")
+    ax.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_lateral_g"], marker="o", label="lateral g")
+    ax.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_vertical_g"], marker="o", label="vertical g")
+    ax.set_title("Maximum G-Forces by Smoothing Window")
+    ax.set_xlabel("Smoothing window (rows)")
+    ax.set_ylabel("Maximum absolute acceleration (g)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.show()
+
+    fig_speed, ax_speed = plt.subplots(figsize=(8, 4))
+    ax_speed.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_speed_m_per_s"], marker="o")
+    ax_speed.set_title("Maximum Vehicle Speed by Smoothing Window")
+    ax_speed.set_xlabel("Smoothing window (rows)")
+    ax_speed.set_ylabel("Maximum speed (m/s)")
+    ax_speed.grid(True, alpha=0.3)
+    plt.show()
+    return (fig, ax), (fig_speed, ax_speed)
+
+
+def plot_primary_parameter_comparison(analysis_context, parameter_comparison):
+    import matplotlib.pyplot as plt
+
+    if analysis_context["analysis_key"] != "suspension_acceleration":
+        return None
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    for axis_name in ["main_axis", "lateral_axis", "vertical_axis"]:
+        rows = parameter_comparison[parameter_comparison["axis"] == axis_name]
+        ax.plot(rows["smoothing_window_rows"], rows["smoothed_std"], marker="o", label=axis_name)
+    ax.set_title("Smoothed Acceleration Variation by Axis")
+    ax.set_xlabel("Smoothing window (rows)")
+    ax.set_ylabel("Standard deviation after smoothing")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.show()
+    return fig, ax
+
+
 def _resolve_drivetrain_gears(drivetrain_metadata):
     rows = []
     first_combo = drivetrain_metadata.get("first_gear_combo", {})
@@ -629,9 +1201,18 @@ def summarize_analysis_results(
     smoothing_window,
     outlier_z_threshold,
     drivetrain_rotation=None,
+    specialized_analysis=None,
 ):
     extra_items = []
     extra_values = []
+    if specialized_analysis is not None and specialized_analysis.get("analysis_key") == "suspension_acceleration":
+        summary = specialized_analysis["summary"]
+        for _, row in summary.iterrows():
+            extra_items.append(f"{row['metric']}_{row['unit']}".replace("/", "_per_").replace(" ", "_"))
+            extra_values.append(row["value"])
+    elif specialized_analysis is not None and specialized_analysis.get("analysis_key") == "drivetrain_illuminance":
+        drivetrain_rotation = specialized_analysis.get("drivetrain_rotation")
+
     if drivetrain_rotation is not None:
         extra_items = ["rotor_speed_mean_rpm", "motor_speed_mean_rpm", "motor_to_rotor_gear_ratio"]
         extra_values = [
@@ -698,6 +1279,31 @@ def _frame_preview(frame, limit=20):
     # Convert a small DataFrame preview into plain Python records. Missing
     # values are converted to None so the result can be serialized as JSON.
     return frame.head(limit).where(pd.notna(frame), None).to_dict(orient="records")
+
+
+def _numeric_candidate_columns(df):
+    candidates = []
+    for column in df.columns.astype(str).tolist():
+        converted = pd.to_numeric(df[column], errors="coerce")
+        if converted.notna().sum() > 0:
+            candidates.append(column)
+    return candidates or df.columns.astype(str).tolist()
+
+
+def _existing_or_first_match(preferred, columns, patterns):
+    if preferred in columns:
+        return preferred
+
+    lowered = {column.lower(): column for column in columns}
+    for pattern in patterns:
+        if not pattern:
+            continue
+        pattern_lower = str(pattern).lower()
+        for column_lower, column in lowered.items():
+            if pattern_lower in column_lower:
+                return column
+
+    raise ValueError(f"No column found for patterns {patterns}. Check metadata.json.")
 
 
 def _relative_or_absolute(path, project_root):

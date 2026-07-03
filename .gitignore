@@ -81,6 +81,12 @@ target/
 .matplotlib/
 .tmp_mpl/
 .ipython/
+outputs/
+
+# Local workspace/editor state
+.agents/
+.codex/
+.vscode/
 
 # IPython
 profile_default/
