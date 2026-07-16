@@ -5,25 +5,25 @@
 
 ### Module 6 – Lab 1: Evaluate Measurements in Jupyter
 
-[Open Module 6 Lab in JupyterHub](https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_06_evaluate_measurements_jupyter.ipynb&system=deNBI-Cloud&flavor=m1)
+<a href="https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_06_evaluate_measurements_jupyter.ipynb&system=deNBI-Cloud&flavor=m1" target="_blank" rel="noopener">Open Module 6 Lab in JupyterHub</a>
 
 Load drivetrain or suspension measurements, inspect their structure and data quality, and evaluate them with metadata-driven analysis parameters. The lab covers smoothing, outlier detection, visualizations, parameter comparisons, and the documentation of analytical decisions and limitations.
 
 ### Module 10 – Lab: Publish Your Data
 
-[Open Module 10 Lab in JupyterHub](https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_10_publish_data_jupyter.ipynb&system=deNBI-Cloud&flavor=m1)
+<a href="https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_10_publish_data_jupyter.ipynb&system=deNBI-Cloud&flavor=m1" target="_blank" rel="noopener">Open Module 10 Lab in JupyterHub</a>
 
 Turn the analysed measurement into a publication-quality data package. The lab walks through the publication record (creator, ORCID, keywords, version), a deliberate licence choice, and a pre-publish checklist, then exports the dataset as an RO-Crate ZIP - the same package Lab 13 imports. It closes with data availability statement and data citation templates.
 
 ### Module 13 – Lab: Generate New Insights from Reused Data
 
-[Open Module 13 Lab in JupyterHub](https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_13_generate_new_findings_jupyter.ipynb&system=deNBI-Cloud&flavor=m1)
+<a href="https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_13_generate_new_findings_jupyter.ipynb&system=deNBI-Cloud&flavor=m1" target="_blank" rel="noopener">Open Module 13 Lab in JupyterHub</a>
 
 Import a stored measurement as an RO-Crate ZIP and reuse it for a new research question. For drivetrain data, the lab evaluates mean bright-phase illuminance against a configurable threshold; for suspension data, it estimates travelled distance, heading, start and end positions, and a local 2D route. The resulting findings, assumptions, parameters, and provenance are recorded for reproducibility.
 
 ## Metadata Workflow
 
-[`create_metadata_jupyter.ipynb`](create_metadata_jupyter.ipynb) prepares the metadata for the original measurement. It validates numerical ranges, displays an exact before/after comparison, and writes `metadata.json` only after an explicit button confirmation. Only the selected `measurement_type` is presented for editing; settings for the other use case remain unchanged or come from central defaults.
+<a href="create_metadata_jupyter.ipynb" target="_blank" rel="noopener"><code>create_metadata_jupyter.ipynb</code></a> prepares the metadata for the original measurement. It validates numerical ranges, displays an exact before/after comparison, and writes `metadata.json` only after an explicit button confirmation. Only the selected `measurement_type` is presented for editing; settings for the other use case remain unchanged or come from central defaults.
 
 Module 13 does not overwrite the original `metadata.json`. For every reused analysis it creates `outputs/<lab13-dataset>/metadata_reused.json`. This record contains the source RO-Crate and checksum, original preprocessing parameters, separate Module 13 parameters, result summary, parameter comparison, interpretation fields, and generated artefacts. Unrelated measurement modes are excluded.
 
