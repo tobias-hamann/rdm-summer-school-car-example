@@ -76,9 +76,6 @@ def default_analysis_metadata():
             "outlier_z_threshold": 3.0,
             "motor_speed_outlier_z_threshold": 3.0,
             "motor_speed_smoothing_windows": [1, 5, 15, 31],
-            "minimum_bright_phase_mean_lx": 500.0,
-            "bright_phase_min_duration_s": 0.3,
-            "bright_phase_thresholds_to_compare_lx": [300, 500, 1000],
             "plot_raw_values": True,
             "plot_smoothed_values": True,
         },
@@ -95,14 +92,6 @@ def default_analysis_metadata():
             "motion_outlier_z_threshold": 7.5,
             "speed_initial_m_per_s": 0.0,
             "parameter_smoothing_windows": [5, 25, 75, 151],
-            "route_initial_heading_deg": 0.0,
-            "route_end_speed_m_per_s": 0.0,
-            "route_apply_linear_speed_drift_correction": True,
-            "route_clip_negative_speed": True,
-            "route_min_speed_m_per_s": 0.5,
-            "route_lateral_deadband_m_per_s2": 0.05,
-            "route_max_yaw_rate_deg_per_s": 90.0,
-            "route_deadbands_to_compare_m_per_s2": [0.0, 0.05, 0.1, 0.2],
             "plot_raw_values": True,
             "plot_smoothed_values": True,
         },
@@ -182,23 +171,25 @@ def load_public_metadata(project_root=None, metadata_file=None):
 def save_public_metadata(metadata, project_root=None, metadata_file=None):
     # Save only compact course metadata, not extracted recording metadata.
     path = Path(metadata_file) if metadata_file else public_metadata_path(project_root)
-    recorded_data_path = get_recorded_data_path(metadata)
-    write_json_file(
-        path,
-        default_public_metadata(
-            recorded_data_path=recorded_data_path,
-            measurement_type=metadata.get("measurement_type", infer_measurement_type(recorded_data_path)),
-            run_name=metadata.get("run_name", infer_run_name(recorded_data_path)),
-            quantity=metadata.get("quantity", infer_quantity(recorded_data_path)),
-            data_stage=metadata.get("data_stage", "raw"),
-            version=metadata.get("version", "v0.1.0"),
-            hot_storage_path=metadata.get("hot_storage_path", ""),
-            analysis=metadata.get("analysis", default_analysis_metadata()),
-            suspension=metadata.get("suspension", default_suspension_metadata()),
-            drivetrain=metadata.get("drivetrain", default_drivetrain_metadata()),
-        ),
-    )
+    write_json_file(path, normalize_public_metadata(metadata))
     return path
+
+
+def normalize_public_metadata(metadata):
+    """Return exactly the public structure that ``save_public_metadata`` writes."""
+    recorded_data_path = get_recorded_data_path(metadata)
+    return default_public_metadata(
+        recorded_data_path=recorded_data_path,
+        measurement_type=metadata.get("measurement_type", infer_measurement_type(recorded_data_path)),
+        run_name=metadata.get("run_name", infer_run_name(recorded_data_path)),
+        quantity=metadata.get("quantity", infer_quantity(recorded_data_path)),
+        data_stage=metadata.get("data_stage", "raw"),
+        version=metadata.get("version", "v0.1.0"),
+        hot_storage_path=metadata.get("hot_storage_path", ""),
+        analysis=metadata.get("analysis", default_analysis_metadata()),
+        suspension=metadata.get("suspension", default_suspension_metadata()),
+        drivetrain=metadata.get("drivetrain", default_drivetrain_metadata()),
+    )
 
 
 def merge_metadata_updates(existing, updates):

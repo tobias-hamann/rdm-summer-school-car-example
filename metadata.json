@@ -21,13 +21,6 @@
         15,
         31
       ],
-      "minimum_bright_phase_mean_lx": 500.0,
-      "bright_phase_min_duration_s": 0.3,
-      "bright_phase_thresholds_to_compare_lx": [
-        300,
-        500,
-        1000
-      ],
       "plot_raw_values": true,
       "plot_smoothed_values": true
     },
@@ -48,19 +41,6 @@
         25,
         75,
         151
-      ],
-      "route_initial_heading_deg": 0.0,
-      "route_end_speed_m_per_s": 0.0,
-      "route_apply_linear_speed_drift_correction": true,
-      "route_clip_negative_speed": true,
-      "route_min_speed_m_per_s": 0.5,
-      "route_lateral_deadband_m_per_s2": 0.05,
-      "route_max_yaw_rate_deg_per_s": 90.0,
-      "route_deadbands_to_compare_m_per_s2": [
-        0.0,
-        0.05,
-        0.1,
-        0.2
       ],
       "plot_raw_values": true,
       "plot_smoothed_values": true

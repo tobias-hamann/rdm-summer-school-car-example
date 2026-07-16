@@ -395,10 +395,10 @@ def load_ro_crate(path, project_root=None):
 
 
 def apply_ro_crate_to_metadata(metadata, ro_crate_context, project_root=None):
-    """Overlay crate-owned metadata while retaining unrelated local mode settings."""
+    """Build runtime metadata from the crate; local metadata is only a locator."""
     project_root = Path(project_root).resolve() if project_root else Path.cwd().resolve()
     properties = ro_crate_context["properties"]
-    updated = dict(metadata)
+    updated = deepcopy(ro_crate_context["embedded_metadata"])
     updated["ro_crate_main_entity"] = ro_crate_context["main_entity_id"]
     original_payload = (
         ro_crate_context["archive_path"].parent
@@ -409,16 +409,6 @@ def apply_ro_crate_to_metadata(metadata, ro_crate_context, project_root=None):
     for key in ["measurement_type", "quantity", "run_name", "data_stage", "version"]:
         if properties.get(key) is not None:
             updated[key] = properties[key]
-    embedded_metadata = ro_crate_context.get("embedded_metadata", {})
-    analysis_key = f"{updated['measurement_type']}_{updated['quantity']}"
-    embedded_analysis = embedded_metadata.get("analysis", {}).get(analysis_key)
-    if embedded_analysis is not None:
-        updated.setdefault("analysis", {})
-        updated["analysis"] = dict(updated["analysis"])
-        updated["analysis"][analysis_key] = deepcopy(embedded_analysis)
-    mode_metadata = embedded_metadata.get(updated["measurement_type"])
-    if mode_metadata is not None:
-        updated[updated["measurement_type"]] = deepcopy(mode_metadata)
     return updated
 
 

@@ -15,6 +15,12 @@ Load drivetrain or suspension measurements, inspect their structure and data qua
 
 Import a stored measurement as an RO-Crate ZIP and reuse it for a new research question. For drivetrain data, the lab evaluates mean bright-phase illuminance against a configurable threshold; for suspension data, it estimates travelled distance, heading, start and end positions, and a local 2D route. The resulting findings, assumptions, parameters, and provenance are recorded for reproducibility.
 
+## Metadata Workflow
+
+[`create_metadata_jupyter.ipynb`](create_metadata_jupyter.ipynb) prepares the metadata for the original measurement. It validates numerical ranges, displays an exact before/after comparison, and writes `metadata.json` and `private_metadata.json` only after an explicit button confirmation. Only the selected `measurement_type` is presented for editing; settings for the other use case remain unchanged or come from central defaults.
+
+Module 13 does not overwrite the original `metadata.json`. For every reused analysis it creates `outputs/<lab13-dataset>/metadata_reused.json`. This record contains the source RO-Crate and checksum, original preprocessing parameters, separate Module 13 parameters, result summary, parameter comparison, interpretation fields, and generated artefacts. Private metadata and unrelated measurement modes are excluded.
+
 ## Technical remarks
 
 Module 13 imports the reused measurement as an attached RO-Crate ZIP. The same shared exporter is intended for the Module 10 export. All exported archives are stored in `output/ro-crates/`:

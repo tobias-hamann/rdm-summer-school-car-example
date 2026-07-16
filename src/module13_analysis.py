@@ -26,7 +26,7 @@ def get_module13_story(analysis_context):
             ),
             "analytical_choice": (
                 "The arithmetic mean of all samples in the retained bright phases is compared with "
-                "minimum_bright_phase_mean_lx from metadata.json."
+                "the minimum_bright_phase_mean_lx Module 13 reuse parameter."
             ),
             "limitations": (
                 "The measurement position, sensor orientation, daylight, glare, individual sleep, and "
@@ -112,7 +112,8 @@ def analyze_bright_phase_working_conditions(analysis_context, metadata, minimum_
     phases = pd.DataFrame(rows)
     if phases.empty:
         raise ValueError(
-            "No bright phases remained after duration filtering. Lower bright_phase_min_duration_s in metadata.json."
+            "No bright phases remained after duration filtering. Lower the Module 13 "
+            "bright_phase_min_duration_s reuse parameter."
         )
 
     retained_mask = pd.Series(False, index=df.index)
