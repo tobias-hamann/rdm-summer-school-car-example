@@ -65,7 +65,16 @@ def filter_metadata_for_ro_crate(metadata, main_entity_id):
     return selected
 
 
-def export_measurement_ro_crate_zip(metadata, project_root=None, export_date=None):
+def export_measurement_ro_crate_zip(
+    metadata,
+    project_root=None,
+    export_date=None,
+    author_name=None,
+    author_orcid=None,
+    license_id=None,
+    license_name=None,
+    keywords=None,
+):
     """Export the dataset currently selected by the top level of metadata.json."""
     required = [
         "recorded_data_path",
@@ -137,6 +146,11 @@ def export_measurement_ro_crate_zip(metadata, project_root=None, export_date=Non
             "description": f"Primary {quantity} measurement data for {run_name}.",
         },
         additional_files=additional_files,
+        author_name=author_name,
+        author_orcid=author_orcid,
+        license_id=license_id,
+        license_name=license_name,
+        keywords=keywords,
     )
 
 
@@ -156,8 +170,10 @@ def _write_measurement_ro_crate_zip(
     unit_text=None,
     additional_files=None,
     author_name=None,
+    author_orcid=None,
     license_id=None,
     license_name=None,
+    keywords=None,
 ):
     """Create the canonical Lab 10/13 measurement RO-Crate ZIP package.
 
@@ -228,8 +244,10 @@ def _write_measurement_ro_crate_zip(
         unit_text=unit_text,
         date_published=date_published,
         author_name=author_name,
+        author_orcid=author_orcid,
         license_id=license_id,
         license_name=license_name,
+        keywords=keywords,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -457,8 +475,10 @@ def _build_measurement_ro_crate_document(
     unit_text,
     date_published,
     author_name=None,
+    author_orcid=None,
     license_id=None,
     license_name=None,
+    keywords=None,
 ):
     main_payload = next(item for item in payloads if item["is_main"])
     property_specs = [
@@ -479,8 +499,11 @@ def _build_measurement_ro_crate_document(
         "additionalProperty": [{"@id": f"#{item[0]}"} for item in property_specs],
         "creditText": f"{name}, {date_published}.",
     }
+    author_entity_id = author_orcid or "#creator"
+    if keywords:
+        root_entity["keywords"] = list(keywords)
     if author_name:
-        root_entity["author"] = {"@id": "#creator"}
+        root_entity["author"] = {"@id": author_entity_id}
     if license_id:
         root_entity["license"] = {"@id": license_id}
 
@@ -507,7 +530,10 @@ def _build_measurement_ro_crate_document(
         graph.append(entity)
 
     if author_name:
-        graph.append({"@id": "#creator", "@type": "Person", "name": author_name})
+        author_entity = {"@id": author_entity_id, "@type": "Person", "name": author_name}
+        if author_orcid:
+            author_entity["identifier"] = author_orcid
+        graph.append(author_entity)
     if license_id:
         graph.append(
             {

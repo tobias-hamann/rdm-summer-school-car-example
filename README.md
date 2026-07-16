@@ -9,6 +9,12 @@
 
 Load drivetrain or suspension measurements, inspect their structure and data quality, and evaluate them with metadata-driven analysis parameters. The lab covers smoothing, outlier detection, visualizations, parameter comparisons, and the documentation of analytical decisions and limitations.
 
+### Module 10 – Lab: Publish Your Data
+
+[Open Module 10 Lab in JupyterHub](https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_10_publish_data_jupyter.ipynb&system=deNBI-Cloud&flavor=m1)
+
+Turn the analysed measurement into a publication-quality data package. The lab walks through the publication record (creator, ORCID, keywords, version), a deliberate licence choice, and a pre-publish checklist, then exports the dataset as an RO-Crate ZIP - the same package Lab 13 imports. It closes with data availability statement and data citation templates.
+
 ### Module 13 – Lab: Generate New Insights from Reused Data
 
 [Open Module 13 Lab in JupyterHub](https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_13_generate_new_findings_jupyter.ipynb&system=deNBI-Cloud&flavor=m1)
@@ -23,7 +29,7 @@ Module 13 does not overwrite the original `metadata.json`. For every reused anal
 
 ## Technical remarks
 
-Module 13 imports the reused measurement as an attached RO-Crate ZIP. The same shared exporter is intended for the Module 10 export. All exported archives are stored in `output/ro-crates/`:
+Module 13 imports the reused measurement as an attached RO-Crate ZIP. Module 10 exports it with the same shared exporter. All exported archives are stored in `output/ro-crates/`:
 
 - `output/ro-crates/2026-07-16_drivetrain_illuminance_example_raw_v0-1-0.ro-crate.zip`
 - `output/ro-crates/2026-07-16_suspension_acceleration_example_raw_v0-1-0.ro-crate.zip`

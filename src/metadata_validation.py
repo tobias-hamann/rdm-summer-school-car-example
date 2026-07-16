@@ -24,30 +24,30 @@ ALLOWED_MEASUREMENTS = {
 _MISSING = object()
 
 
-def prepare_public_metadata_candidate(
+def prepare_metadata_draft(
     existing_metadata,
     metadata_mode,
     general_updates,
     active_analysis_metadata,
     active_setup_metadata,
 ):
-    """Build the exact public metadata candidate without writing a file."""
+    """Build the exact draft of the new metadata.json without writing a file."""
     if metadata_mode not in ("load", "replace", "update"):
         raise ValueError("metadata_mode must be 'load', 'replace', or 'update'.")
     if metadata_mode == "load":
         return normalize_public_metadata(existing_metadata)
 
     base = default_public_metadata() if metadata_mode == "replace" else deepcopy(existing_metadata)
-    candidate = merge_metadata_updates(base, general_updates)
-    measurement_type = candidate.get("measurement_type")
-    quantity = candidate.get("quantity")
+    draft = merge_metadata_updates(base, general_updates)
+    measurement_type = draft.get("measurement_type")
+    quantity = draft.get("quantity")
     analysis_key = f"{measurement_type}_{quantity}"
 
-    candidate.setdefault("analysis", {})
-    candidate["analysis"] = deepcopy(candidate["analysis"])
-    candidate["analysis"][analysis_key] = deepcopy(active_analysis_metadata)
-    candidate[measurement_type] = deepcopy(active_setup_metadata)
-    return normalize_public_metadata(candidate)
+    draft.setdefault("analysis", {})
+    draft["analysis"] = deepcopy(draft["analysis"])
+    draft["analysis"][analysis_key] = deepcopy(active_analysis_metadata)
+    draft[measurement_type] = deepcopy(active_setup_metadata)
+    return normalize_public_metadata(draft)
 
 
 def validate_public_metadata(metadata, project_root=None):
@@ -181,14 +181,14 @@ def metadata_diff_html(before, after, title):
 def create_metadata_write_controls(
     project_root,
     public_before_raw,
-    public_candidate,
+    metadata_draft,
 ):
     """Create explicit confirm/reject buttons; writing happens only in callbacks."""
     import ipywidgets as widgets
     from IPython.display import HTML, display
 
     root = Path(project_root).resolve()
-    public_validation = validate_public_metadata(public_candidate, root)
+    public_validation = validate_public_metadata(metadata_draft, root)
     errors = public_validation["errors"]
     warnings = public_validation["warnings"]
     state = {
@@ -223,13 +223,13 @@ def create_metadata_write_controls(
             disable_buttons()
             message("metadata.json changed after the preview. Re-run the preview before writing.", "#9b2c2c")
             return
-        current_validation = validate_public_metadata(public_candidate, root)
+        current_validation = validate_public_metadata(metadata_draft, root)
         if not current_validation["valid"]:
             state["decision"] = "invalid"
             disable_buttons()
             message("Validation failed. Correct the metadata and rebuild the preview.", "#9b2c2c")
             return
-        public_path = save_public_metadata(deepcopy(public_candidate), root)
+        public_path = save_public_metadata(deepcopy(metadata_draft), root)
         state.update(
             {
                 "decision": "written",
