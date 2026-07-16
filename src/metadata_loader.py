@@ -76,6 +76,9 @@ def default_analysis_metadata():
             "outlier_z_threshold": 3.0,
             "motor_speed_outlier_z_threshold": 3.0,
             "motor_speed_smoothing_windows": [1, 5, 15, 31],
+            "minimum_bright_phase_mean_lx": 500.0,
+            "bright_phase_min_duration_s": 0.3,
+            "bright_phase_thresholds_to_compare_lx": [300, 500, 1000],
             "plot_raw_values": True,
             "plot_smoothed_values": True,
         },
@@ -92,6 +95,14 @@ def default_analysis_metadata():
             "motion_outlier_z_threshold": 7.5,
             "speed_initial_m_per_s": 0.0,
             "parameter_smoothing_windows": [5, 25, 75, 151],
+            "route_initial_heading_deg": 0.0,
+            "route_end_speed_m_per_s": 0.0,
+            "route_apply_linear_speed_drift_correction": True,
+            "route_clip_negative_speed": True,
+            "route_min_speed_m_per_s": 0.5,
+            "route_lateral_deadband_m_per_s2": 0.05,
+            "route_max_yaw_rate_deg_per_s": 90.0,
+            "route_deadbands_to_compare_m_per_s2": [0.0, 0.05, 0.1, 0.2],
             "plot_raw_values": True,
             "plot_smoothed_values": True,
         },
@@ -280,8 +291,8 @@ def apply_recorded_data_path_override(metadata, recorded_data_path_override=None
     if recorded_data_path_override:
         metadata["recorded_data_path"] = recorded_data_path_override
         metadata["measurement_type"] = measurement_type_override or infer_measurement_type(recorded_data_path_override)
-        metadata.setdefault("run_name", infer_run_name(recorded_data_path_override))
-        metadata.setdefault("quantity", infer_quantity(recorded_data_path_override))
+        metadata["run_name"] = infer_run_name(recorded_data_path_override)
+        metadata["quantity"] = infer_quantity(recorded_data_path_override)
     elif measurement_type_override:
         metadata["measurement_type"] = measurement_type_override
     return metadata
