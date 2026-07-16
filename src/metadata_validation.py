@@ -32,12 +32,12 @@ def prepare_public_metadata_candidate(
     active_setup_metadata,
 ):
     """Build the exact public metadata candidate without writing a file."""
-    if metadata_mode not in (1, 2, 3):
-        raise ValueError("metadata_mode must be 1, 2, or 3.")
-    if metadata_mode == 1:
+    if metadata_mode not in ("load", "replace", "update"):
+        raise ValueError("metadata_mode must be 'load', 'replace', or 'update'.")
+    if metadata_mode == "load":
         return normalize_public_metadata(existing_metadata)
 
-    base = default_public_metadata() if metadata_mode == 2 else deepcopy(existing_metadata)
+    base = default_public_metadata() if metadata_mode == "replace" else deepcopy(existing_metadata)
     candidate = merge_metadata_updates(base, general_updates)
     measurement_type = candidate.get("measurement_type")
     quantity = candidate.get("quantity")
@@ -176,16 +176,6 @@ def metadata_diff_html(before, after, title):
         "<thead><tr><th>Path</th><th>Change</th><th>Before</th><th>After</th></tr></thead>"
         f"<tbody>{body}</tbody></table>"
     )
-
-
-def parse_json_editor(editor, label):
-    try:
-        value = json.loads(editor.value)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{label} contains invalid JSON: {exc}") from exc
-    if not isinstance(value, dict):
-        raise ValueError(f"{label} must contain one JSON object.")
-    return value
 
 
 def create_metadata_write_controls(

@@ -85,6 +85,7 @@ outputs/
 
 # Local workspace/editor state
 .agents/
+.claude/
 .codex/
 .vscode/
 
