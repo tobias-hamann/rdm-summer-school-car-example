@@ -1388,6 +1388,85 @@ def display_mode_outlier_report(specialized_analysis, analysis_config, fallback_
     plot_mode_outliers(specialized_analysis)
 
 
+def interactive_smoothing_explorer(analysis_context):
+    """Slider to explore how the smoothing window changes the smoothed signal.
+
+    Exploration only: the slider value is not recorded anywhere. The
+    documented choice belongs in metadata.json (smoothing_window).
+    """
+    import matplotlib.pyplot as plt
+    from ipywidgets import IntSlider, interact
+
+    df_analysis = analysis_context["df_analysis"]
+    time_column = analysis_context["time_column"]
+    value_column = analysis_context["value_column"]
+    default_window = int(analysis_context["config"].get("smoothing_window", 5))
+
+    window_slider = IntSlider(
+        value=default_window,
+        min=1,
+        max=201,
+        step=1,
+        description="window",
+        continuous_update=False,
+    )
+
+    @interact(smoothing_window=window_slider)
+    def plot_smoothing(smoothing_window):
+        df_smoothed = add_smoothed_values(df_analysis, value_column, smoothing_window)
+        plt.figure(figsize=(11, 4))
+        plt.plot(df_analysis[time_column], df_analysis[value_column], color="#94a3b8", alpha=0.6, label="raw")
+        plt.plot(df_smoothed[time_column], df_smoothed["smoothed"], color="#dc2626", linewidth=2, label=f"smoothed (window={smoothing_window})")
+        plt.xlabel(time_column)
+        plt.ylabel(value_column)
+        plt.title(
+            f"window={smoothing_window}: raw max {df_analysis[value_column].max():.2f}, "
+            f"smoothed max {df_smoothed['smoothed'].max():.2f}"
+        )
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.show()
+
+
+def interactive_outlier_explorer(analysis_context):
+    """Slider to explore how the z-score threshold changes the outlier marking.
+
+    Exploration only: the slider value is not recorded anywhere. The
+    documented choice belongs in metadata.json (outlier_z_threshold).
+    """
+    import matplotlib.pyplot as plt
+    from ipywidgets import FloatSlider, interact
+
+    df_analysis = analysis_context["df_analysis"]
+    time_column = analysis_context["time_column"]
+    value_column = analysis_context["value_column"]
+    default_threshold = float(analysis_context["config"].get("outlier_z_threshold", 3.0))
+
+    threshold_slider = FloatSlider(
+        value=default_threshold,
+        min=0.5,
+        max=10.0,
+        step=0.25,
+        description="z threshold",
+        continuous_update=False,
+    )
+
+    @interact(outlier_z_threshold=threshold_slider)
+    def plot_outliers(outlier_z_threshold):
+        result = detect_possible_outliers(df_analysis, value_column, outlier_z_threshold)
+        df_checked = result["df_analysis"]
+        marked = df_checked[df_checked["possible_outlier"]]
+        plt.figure(figsize=(11, 4))
+        plt.plot(df_checked[time_column], df_checked[value_column], color="#94a3b8", alpha=0.6, label="signal")
+        plt.scatter(marked[time_column], marked[value_column], color="#dc2626", s=25, zorder=3, label="possible outlier")
+        plt.xlabel(time_column)
+        plt.ylabel(value_column)
+        plt.title(f"z threshold {outlier_z_threshold:.2f}: {result['outlier_count']} possible outliers")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.show()
+
+
 def write_lab06_outputs(
     project_root,
     metadata,

@@ -90,6 +90,59 @@ def run_module13_reuse_analysis(analysis_context, metadata):
     raise ValueError(f"No Module 13 analysis is configured for {analysis_key!r}.")
 
 
+def interactive_sensitivity_explorer(analysis_context, metadata):
+    """Slider to explore the mode-specific key parameter live.
+
+    Drivetrain: the bright-phase comparison threshold in lx. Suspension: the
+    lateral-acceleration deadband. Exploration only - the slider value is not
+    recorded anywhere; the documented choice belongs in the Section 3
+    overrides.
+    """
+    from ipywidgets import FloatSlider, interact
+
+    analysis_key = analysis_context["analysis_key"]
+    config = analysis_context["config"]
+
+    if analysis_key == "drivetrain_illuminance":
+        threshold_slider = FloatSlider(
+            value=float(config.get("minimum_bright_phase_mean_lx", 500.0)),
+            min=50.0,
+            max=2000.0,
+            step=25.0,
+            description="threshold lx",
+            continuous_update=False,
+        )
+
+        @interact(minimum_lx=threshold_slider)
+        def explore_threshold(minimum_lx):
+            result = analyze_bright_phase_working_conditions(analysis_context, metadata, minimum_lx=minimum_lx)
+            plot_bright_phase_working_conditions(result)
+
+        return
+
+    if analysis_key == "suspension_acceleration":
+        deadband_slider = FloatSlider(
+            value=float(config.get("route_lateral_deadband_m_per_s2", 0.05)),
+            min=0.0,
+            max=0.5,
+            step=0.01,
+            description="deadband",
+            continuous_update=False,
+        )
+
+        @interact(lateral_deadband_m_per_s2=deadband_slider)
+        def explore_deadband(lateral_deadband_m_per_s2):
+            result = calculate_suspension_route(
+                analysis_context,
+                config_override={"route_lateral_deadband_m_per_s2": lateral_deadband_m_per_s2},
+            )
+            plot_suspension_route(result)
+
+        return
+
+    raise ValueError(f"No Module 13 analysis is configured for {analysis_key!r}.")
+
+
 def run_module13_parameter_sensitivity(analysis_context, module13_result):
     """Vary the mode-specific key parameter, display and plot the comparison."""
     from IPython.display import display
