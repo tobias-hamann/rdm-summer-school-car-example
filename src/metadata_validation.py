@@ -12,9 +12,7 @@ from metadata_loader import (
     load_json_file,
     merge_metadata_updates,
     normalize_public_metadata,
-    private_metadata_path,
     public_metadata_path,
-    save_private_metadata,
     save_public_metadata,
 )
 
@@ -132,19 +130,6 @@ def validate_public_metadata(metadata, project_root=None):
     return {"valid": not errors, "errors": errors, "warnings": warnings}
 
 
-def validate_private_metadata(metadata):
-    errors = []
-    student = metadata.get("student") if isinstance(metadata, dict) else None
-    if not isinstance(student, dict):
-        errors.append({"path": "student", "message": "must be an object"})
-    else:
-        for key in ["first_name", "last_name"]:
-            value = student.get(key)
-            if value is not None and not isinstance(value, str):
-                errors.append({"path": f"student.{key}", "message": "must be text or null"})
-    return {"valid": not errors, "errors": errors, "warnings": []}
-
-
 def build_metadata_diff(before, after):
     """Return an exact recursive before/after comparison."""
     before_flat = _flatten(before)
@@ -207,8 +192,6 @@ def create_metadata_write_controls(
     project_root,
     public_before_raw,
     public_candidate,
-    private_before_raw,
-    private_candidate,
 ):
     """Create explicit confirm/reject buttons; writing happens only in callbacks."""
     import ipywidgets as widgets
@@ -216,13 +199,11 @@ def create_metadata_write_controls(
 
     root = Path(project_root).resolve()
     public_validation = validate_public_metadata(public_candidate, root)
-    private_validation = validate_private_metadata(private_candidate)
-    errors = public_validation["errors"] + private_validation["errors"]
-    warnings = public_validation["warnings"] + private_validation["warnings"]
+    errors = public_validation["errors"]
+    warnings = public_validation["warnings"]
     state = {
         "decision": "pending",
         "public_path": None,
-        "private_path": None,
         "errors": errors,
         "warnings": warnings,
     }
@@ -247,11 +228,10 @@ def create_metadata_write_controls(
 
     def on_confirm(_):
         current_public = load_json_file(public_metadata_path(root), {})
-        current_private = load_json_file(private_metadata_path(root), {})
-        if current_public != public_before_raw or current_private != private_before_raw:
+        if current_public != public_before_raw:
             state["decision"] = "stale"
             disable_buttons()
-            message("Files changed after the preview. Re-run the preview before writing.", "#9b2c2c")
+            message("metadata.json changed after the preview. Re-run the preview before writing.", "#9b2c2c")
             return
         current_validation = validate_public_metadata(public_candidate, root)
         if not current_validation["valid"]:
@@ -260,16 +240,14 @@ def create_metadata_write_controls(
             message("Validation failed. Correct the metadata and rebuild the preview.", "#9b2c2c")
             return
         public_path = save_public_metadata(deepcopy(public_candidate), root)
-        private_path = save_private_metadata(deepcopy(private_candidate), root)
         state.update(
             {
                 "decision": "written",
                 "public_path": str(public_path),
-                "private_path": str(private_path),
             }
         )
         disable_buttons()
-        message(f"Metadata written to {public_path} and {private_path}.", "#1f7a3a")
+        message(f"Metadata written to {public_path}.", "#1f7a3a")
 
     def on_reject(_):
         state["decision"] = "rejected"

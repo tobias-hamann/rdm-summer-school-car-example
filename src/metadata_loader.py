@@ -6,7 +6,6 @@ import json
 DEFAULT_RECORDED_DATA_PATH = "data/drivetrain/Example/Raw Data.csv"
 DEFAULT_MEASUREMENT_TYPE = "drivetrain"
 PUBLIC_METADATA_FILENAME = "metadata.json"
-PRIVATE_METADATA_FILENAME = "private_metadata.json"
 
 
 def load_json_file(path, default=None):
@@ -32,11 +31,6 @@ def write_json_file(path, data):
 def public_metadata_path(project_root=None):
     # Public metadata is intentionally only a pointer to the recorded data file.
     return _project_root(project_root) / PUBLIC_METADATA_FILENAME
-
-
-def private_metadata_path(project_root=None):
-    # Private metadata contains personal data and must remain ignored by git.
-    return _project_root(project_root) / PRIVATE_METADATA_FILENAME
 
 
 def default_public_metadata(
@@ -140,15 +134,6 @@ def default_drivetrain_metadata():
     }
 
 
-def default_private_metadata():
-    return {
-        "student": {
-            "first_name": "Vorname",
-            "last_name": "Name",
-        },
-    }
-
-
 def load_public_metadata(project_root=None, metadata_file=None):
     # Load the course-level metadata and normalize older field names that may
     # still exist in notebooks or student copies.
@@ -205,24 +190,6 @@ def merge_metadata_updates(existing, updates):
         else:
             merged[key] = value
     return merged
-
-
-def load_private_metadata(project_root=None, private_metadata_file=None, create_if_missing=False):
-    # Load student-specific metadata. It stays out of git and out of shared
-    # analysis outputs unless explicitly included.
-    path = Path(private_metadata_file) if private_metadata_file else private_metadata_path(project_root)
-    metadata = load_json_file(path, default_private_metadata())
-
-    if create_if_missing and not path.exists():
-        write_json_file(path, metadata)
-
-    return metadata
-
-
-def save_private_metadata(metadata, project_root=None, private_metadata_file=None):
-    path = Path(private_metadata_file) if private_metadata_file else private_metadata_path(project_root)
-    write_json_file(path, metadata)
-    return path
 
 
 def get_recorded_data_path(metadata, default=DEFAULT_RECORDED_DATA_PATH):
@@ -289,20 +256,17 @@ def apply_recorded_data_path_override(metadata, recorded_data_path_override=None
     return metadata
 
 
-def load_metadata_context(project_root=None, create_private_if_missing=False):
-    # Convenience wrapper for notebooks that need public pointer metadata,
-    # private student metadata, and the resolved data path together.
+def load_metadata_context(project_root=None):
+    # Convenience wrapper for notebooks that need the metadata and resolved
+    # data path together.
     root = _project_root(project_root)
     public_metadata = load_public_metadata(root)
-    private_metadata = load_private_metadata(root, create_if_missing=create_private_if_missing)
     selected_data_path = resolve_recorded_data_path(root, public_metadata)
 
     return {
         "project_root": root,
         "public_metadata_path": public_metadata_path(root),
-        "private_metadata_path": private_metadata_path(root),
         "public_metadata": public_metadata,
-        "private_metadata": private_metadata,
         "selected_data_path": selected_data_path,
     }
 
@@ -312,7 +276,6 @@ def summarize_metadata_context(context):
     # command-line checks.
     return {
         "public_metadata_path": _string_path(context["public_metadata_path"]),
-        "private_metadata_path": _string_path(context["private_metadata_path"]),
         "recorded_data_path": get_recorded_data_path(context["public_metadata"]),
         "measurement_type": context["public_metadata"].get("measurement_type"),
         "run_name": context["public_metadata"].get("run_name"),
@@ -324,7 +287,6 @@ def summarize_metadata_context(context):
         "suspension": context["public_metadata"].get("suspension", {}),
         "drivetrain": context["public_metadata"].get("drivetrain", {}),
         "selected_data_path": _string_path(context["selected_data_path"]),
-        "student": context["private_metadata"].get("student", {}),
     }
 
 
@@ -337,14 +299,12 @@ def _string_path(path):
 
 
 def main():
-    # Minimal CLI for checking the currently selected dataset and private
-    # metadata.
+    # Minimal CLI for checking the currently selected dataset and metadata.
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", default=".")
-    parser.add_argument("--create-private-if-missing", action="store_true")
     args = parser.parse_args()
 
-    context = load_metadata_context(args.project_root, args.create_private_if_missing)
+    context = load_metadata_context(args.project_root)
     print(json.dumps(summarize_metadata_context(context), indent=2))
 
 
