@@ -158,6 +158,110 @@ def build_reused_metadata(
     }
 
 
+def write_lab13_artifacts(
+    *,
+    project_root,
+    metadata,
+    analysis_key,
+    selected_data_path,
+    analysis_context,
+    ro_crate_context,
+    ro_crate_summary,
+    recorded_data_metadata,
+    reuse_analysis_metadata,
+    module13_result,
+    module13_sensitivity,
+    research_question,
+    assumptions="",
+    analytical_choices="",
+    limitations="",
+    tentative_finding="",
+    future_hypothesis="",
+):
+    """Write the reused artefact CSVs and metadata_reused.json for Lab 13.
+
+    Stores the result summary, the detailed table (bright phases or route
+    points), and the complete reuse metadata record next to each other in
+    outputs/<lab13-dataset>/. Returns the written paths.
+    """
+    safe_dataset_name = Path(selected_data_path).stem.replace(" ", "_")
+    output_prefix = f"lab13_{metadata.get('measurement_type', 'measurement')}_{safe_dataset_name}"
+    output_dir = Path(project_root) / "outputs" / output_prefix
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_output_path = output_dir / "summary.csv"
+    reused_metadata_path = output_dir / REUSED_METADATA_FILENAME
+
+    reuse_result = module13_result["reuse_result"]
+    route_result = module13_result["route_result"]
+    parameter_table = module13_sensitivity["parameter_comparison"]
+    if reuse_result is not None:
+        new_insight_summary = reuse_result["summary"]
+        detail_table = reuse_result["phases"]
+        detail_output_path = output_dir / "bright_phases.csv"
+    else:
+        time_column = analysis_context["time_column"]
+        route_columns = [
+            time_column,
+            "route_speed_m_per_s",
+            "route_distance_m",
+            "route_heading_deg",
+            "route_x_m",
+            "route_y_m",
+        ]
+        new_insight_summary = route_result["summary"]
+        detail_table = route_result["route"][route_columns]
+        detail_output_path = output_dir / "route_points.csv"
+
+    new_insight_summary.to_csv(summary_output_path, index=False)
+    detail_table.to_csv(detail_output_path, index=False)
+
+    source_preprocessing_parameters = ro_crate_context["embedded_metadata"]["analysis"][analysis_key]
+    reused_metadata = build_reused_metadata(
+        analysis_key=analysis_key,
+        source_ro_crate={
+            "path": ro_crate_summary["archive_path"],
+            "sha256": sha256_file(ro_crate_context["archive_path"]),
+            "conforms_to": ro_crate_summary["conforms_to"],
+            "date_published": ro_crate_summary["date_published"],
+            "main_data_entity": ro_crate_context["main_entity_id"],
+            "embedded_metadata_entity": ro_crate_context["embedded_metadata_id"],
+        },
+        source_dataset={
+            "measurement_type": metadata["measurement_type"],
+            "quantity": metadata["quantity"],
+            "run_name": metadata["run_name"],
+            "data_stage": metadata["data_stage"],
+            "version": metadata["version"],
+            "data_reference": recorded_data_metadata["recorded_data_path"],
+            "detected_format": recorded_data_metadata["detected_format"],
+        },
+        source_preprocessing_parameters=source_preprocessing_parameters,
+        lab13_parameters=reuse_analysis_metadata,
+        result_summary=new_insight_summary.to_dict(orient="records"),
+        parameter_comparison=parameter_table.to_dict(orient="records"),
+        artifacts={
+            "summary_csv": summary_output_path.name,
+            "detail_csv": detail_output_path.name,
+        },
+        question=research_question,
+        assumptions=assumptions,
+        analytical_choices=analytical_choices,
+        limitations=limitations,
+        tentative_finding=tentative_finding,
+        future_hypothesis=future_hypothesis,
+    )
+    write_reused_metadata(reused_metadata_path, reused_metadata)
+
+    print("Wrote summary:", summary_output_path)
+    print("Wrote detailed artefact:", detail_output_path)
+    print("Wrote reuse metadata:", reused_metadata_path)
+    return {
+        "summary_csv": summary_output_path,
+        "detail_csv": detail_output_path,
+        "metadata_reused": reused_metadata_path,
+    }
+
+
 def write_reused_metadata(path, metadata):
     """Atomically write metadata_reused.json after all other artefacts exist."""
     path = Path(path)

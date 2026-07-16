@@ -7,6 +7,10 @@ DEFAULT_RECORDED_DATA_PATH = "data/drivetrain/Example/Raw Data.csv"
 DEFAULT_MEASUREMENT_TYPE = "drivetrain"
 PUBLIC_METADATA_FILENAME = "metadata.json"
 
+# Sentinel for notebook inputs: KEEP means "keep the value from the base
+# metadata". Internally it is None, which merge_metadata_updates skips.
+KEEP = None
+
 
 def load_json_file(path, default=None):
     # Small shared helper for JSON metadata files. Missing files return a copy

@@ -50,6 +50,93 @@ def prepare_metadata_draft(
     return normalize_public_metadata(draft)
 
 
+def resolve_general_metadata_inputs(metadata_mode, existing_metadata, **general_inputs):
+    """Combine the notebook inputs with the base metadata.
+
+    Inputs left at KEEP (None) keep the base value: the existing file in mode
+    'update', the central defaults in mode 'replace'. Returns the base
+    metadata, the (possibly completed) inputs, and the effective values.
+    """
+    inputs = dict(general_inputs)
+    measurement_type = inputs.get("measurement_type")
+    if measurement_type is not None:
+        if measurement_type not in ALLOWED_MEASUREMENTS:
+            raise ValueError(f"measurement_type must be one of {sorted(ALLOWED_MEASUREMENTS)}")
+        if inputs.get("quantity") is None:
+            inputs["quantity"] = ALLOWED_MEASUREMENTS[measurement_type]
+
+    base_metadata = (
+        default_public_metadata() if metadata_mode == "replace" else deepcopy(existing_metadata)
+    )
+    effective_general = {
+        key: (value if value is not None else base_metadata.get(key))
+        for key, value in inputs.items()
+    }
+
+    for key, value in effective_general.items():
+        origin = "set here" if inputs[key] is not None else "kept from base"
+        print(f"{key}: {value!r} ({origin})")
+    print("Analysis key:", f"{effective_general['measurement_type']}_{effective_general['quantity']}")
+    return base_metadata, inputs, effective_general
+
+
+def apply_use_case_overrides(base_metadata, effective_general, analysis_overrides, setup_overrides):
+    """Merge the notebook override dictionaries into the selected use case.
+
+    Only keys present in the overrides change; every other value keeps the
+    base value. Displays the resulting parameters and returns them.
+    """
+    from IPython.display import HTML, display
+
+    measurement_type = effective_general["measurement_type"]
+    quantity = effective_general["quantity"]
+    if measurement_type not in ALLOWED_MEASUREMENTS:
+        raise ValueError(f"measurement_type must be one of {sorted(ALLOWED_MEASUREMENTS)}")
+    analysis_key = f"{measurement_type}_{quantity}"
+
+    central_defaults = default_public_metadata()
+    active_analysis_metadata = deepcopy(
+        base_metadata.get("analysis", {}).get(analysis_key)
+        or central_defaults["analysis"][analysis_key]
+    )
+    active_setup_metadata = deepcopy(
+        base_metadata.get(measurement_type) or central_defaults[measurement_type]
+    )
+
+    edited_analysis_metadata = merge_metadata_updates(active_analysis_metadata, analysis_overrides)
+    edited_setup_metadata = merge_metadata_updates(active_setup_metadata, setup_overrides)
+
+    display(HTML(f"<h3>{measurement_type.title()}: analysis parameters</h3>"))
+    print(json.dumps(edited_analysis_metadata, indent=2))
+    display(HTML(f"<h3>{measurement_type.title()}: measurement setup</h3>"))
+    print(json.dumps(edited_setup_metadata, indent=2))
+    return edited_analysis_metadata, edited_setup_metadata
+
+
+def display_draft_validation_and_preview(metadata_mode, public_before_raw, metadata_draft, project_root=None):
+    """Validate the draft and show either the exact diff or the current file."""
+    import pandas as pd
+    from IPython.display import HTML, display
+
+    validation = validate_public_metadata(metadata_draft, project_root)
+    validation_rows = [
+        {"level": "error", **item} for item in validation["errors"]
+    ] + [
+        {"level": "warning", **item} for item in validation["warnings"]
+    ]
+    if validation_rows:
+        display(pd.DataFrame(validation_rows))
+    else:
+        display(HTML("<div style='color:#1f7a3a;font-weight:600'>Validation passed without warnings.</div>"))
+
+    if metadata_mode == "load":
+        display(HTML("<h4>Current metadata.json (nothing will be written)</h4>"))
+        print(json.dumps(public_before_raw, indent=2))
+    else:
+        display(HTML(metadata_diff_html(public_before_raw, metadata_draft, "metadata.json: before / after")))
+    return validation
+
+
 def validate_public_metadata(metadata, project_root=None):
     """Return structured errors and warnings for public metadata."""
     root = Path(project_root).resolve() if project_root else Path.cwd().resolve()

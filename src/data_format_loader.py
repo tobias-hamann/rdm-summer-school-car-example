@@ -1342,6 +1342,113 @@ def _relative_or_absolute(path, project_root):
         return str(path).replace("\\", "/")
 
 
+def display_structure_overview(df_raw):
+    """Show columns, dtypes, missing values, duplicates, and statistics."""
+    from IPython.display import display
+
+    print("Column names:")
+    print(df_raw.columns.tolist())
+
+    print("\nData types:")
+    print(df_raw.dtypes)
+
+    print("\nMissing values per column:")
+    display(df_raw.isna().sum().to_frame("missing_values"))
+    print("Duplicate rows:", df_raw.duplicated().sum())
+
+    print("\nSummary statistics:")
+    display(df_raw.describe(include="all").T)
+
+
+def display_mode_outlier_report(specialized_analysis, analysis_config, fallback_z_threshold):
+    """Show the mode-specific outlier threshold, summary, table, and plot."""
+    from IPython.display import display
+
+    print(
+        "Mode-specific outlier threshold:",
+        analysis_config.get(
+            "motion_outlier_z_threshold",
+            analysis_config.get("motor_speed_outlier_z_threshold", fallback_z_threshold),
+        ),
+    )
+
+    print("Mode-specific outlier summary")
+    display(specialized_analysis["mode_outlier_summary"])
+
+    print("Possible mode-specific outliers")
+    mode_outlier_table = specialized_analysis["mode_outlier_table"]
+    if not mode_outlier_table.empty:
+        if "possible_motor_rpm_outlier" in mode_outlier_table.columns:
+            display(mode_outlier_table[mode_outlier_table["possible_motor_rpm_outlier"]].head(10))
+        elif "possible_motion_outlier" in mode_outlier_table.columns:
+            display(mode_outlier_table[mode_outlier_table["possible_motion_outlier"]].head(10))
+        else:
+            display(mode_outlier_table.head(10))
+
+    plot_mode_outliers(specialized_analysis)
+
+
+def write_lab06_outputs(
+    project_root,
+    metadata,
+    selected_data_path,
+    recorded_data_metadata,
+    analysis_context,
+    quality_report,
+    outlier_result,
+    specialized_analysis,
+    parameter_comparison,
+    result_summary,
+):
+    """Write the Lab 6 result summary CSV and the metadata-rich JSON output."""
+    project_root = Path(project_root)
+    selected_data_path = Path(selected_data_path)
+    output_dir = project_root / "outputs"
+    output_dir.mkdir(exist_ok=True)
+
+    safe_dataset_name = selected_data_path.stem.replace(" ", "_")
+    measurement_type = metadata.get("measurement_type", "measurement")
+    json_output_path = output_dir / f"lab06_{measurement_type}_{safe_dataset_name}_result.json"
+    csv_output_path = output_dir / f"lab06_{measurement_type}_{safe_dataset_name}_summary.csv"
+
+    analysis_output = {
+        "public_metadata": metadata,
+        "recorded_data_metadata": {
+            "recorded_data_path": str(selected_data_path.relative_to(project_root)),
+            "detected_format": recorded_data_metadata["detected_format"],
+            "metadata_source": recorded_data_metadata["extracted_metadata"].get("source"),
+        },
+        "analysis_context": {
+            "analysis_key": analysis_context["analysis_key"],
+            "config": analysis_context["config"],
+            "time_column": analysis_context["time_column"],
+            "value_column": analysis_context["value_column"],
+        },
+        "quality_report": quality_report.to_dict(orient="records"),
+        "signal_outlier_summary": {
+            "outlier_count": outlier_result["outlier_count"],
+            "value_mean": outlier_result["value_mean"],
+            "value_std": outlier_result["value_std"],
+        },
+        "specialized_analysis": {
+            "analysis_key": specialized_analysis["analysis_key"],
+            "summary": specialized_analysis["summary"].to_dict(orient="records"),
+            "mode_outlier_summary": specialized_analysis["mode_outlier_summary"].to_dict(orient="records"),
+            "parameter_comparison": specialized_analysis["parameter_comparison"].to_dict(orient="records"),
+        },
+        "parameter_comparison": parameter_comparison.to_dict(orient="records"),
+        "result_summary": result_summary.to_dict(orient="records"),
+    }
+
+    result_summary.to_csv(csv_output_path, index=False)
+    with json_output_path.open("w", encoding="utf-8") as file:
+        json.dump(analysis_output, file, indent=2, default=str)
+
+    print("Wrote result summary:", csv_output_path)
+    print("Wrote metadata-rich result:", json_output_path)
+    return {"summary_csv": csv_output_path, "result_json": json_output_path}
+
+
 def main():
     # Minimal CLI for quick checks outside a notebook:
     # python src/data_format_loader.py data/drivetrain/Example/Raw Data.csv

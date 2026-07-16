@@ -67,6 +67,48 @@ def display_module13_story(analysis_context):
     return pd.DataFrame([{"item": key, "description": value} for key, value in story.items()])
 
 
+def run_module13_reuse_analysis(analysis_context, metadata):
+    """Run, display, and plot the mode-specific reuse analysis.
+
+    Returns a result dictionary that the sensitivity and storage steps
+    consume; exactly one of 'reuse_result' and 'route_result' is set.
+    """
+    from IPython.display import display
+
+    analysis_key = analysis_context["analysis_key"]
+    if analysis_key == "drivetrain_illuminance":
+        reuse_result = analyze_bright_phase_working_conditions(analysis_context, metadata)
+        display(reuse_result["summary"])
+        display(reuse_result["phases"])
+        plot_bright_phase_working_conditions(reuse_result)
+        return {"analysis_key": analysis_key, "reuse_result": reuse_result, "route_result": None}
+    if analysis_key == "suspension_acceleration":
+        route_result = calculate_suspension_route(analysis_context)
+        display(route_result["summary"])
+        plot_suspension_route(route_result)
+        return {"analysis_key": analysis_key, "reuse_result": None, "route_result": route_result}
+    raise ValueError(f"No Module 13 analysis is configured for {analysis_key!r}.")
+
+
+def run_module13_parameter_sensitivity(analysis_context, module13_result):
+    """Vary the mode-specific key parameter, display and plot the comparison."""
+    from IPython.display import display
+
+    analysis_config = analysis_context["config"]
+    if module13_result["analysis_key"] == "drivetrain_illuminance":
+        thresholds_lx = analysis_config.get("bright_phase_thresholds_to_compare_lx", [300, 500, 1000])
+        parameter_comparison = compare_bright_phase_thresholds(module13_result["reuse_result"], thresholds_lx)
+        display(parameter_comparison)
+        plot_bright_phase_threshold_comparison(parameter_comparison)
+        return {"parameter_comparison": parameter_comparison, "comparison_results": None}
+
+    deadbands = analysis_config.get("route_deadbands_to_compare_m_per_s2", [0.0, 0.05, 0.1, 0.2])
+    parameter_comparison, comparison_results = compare_route_deadbands(analysis_context, deadbands)
+    display(parameter_comparison)
+    plot_route_deadband_comparison(comparison_results)
+    return {"parameter_comparison": parameter_comparison, "comparison_results": comparison_results}
+
+
 def analyze_bright_phase_working_conditions(analysis_context, metadata, minimum_lx=None):
     """Detect and average bright phases, then compare them with a chosen threshold."""
     if analysis_context["analysis_key"] != "drivetrain_illuminance":
