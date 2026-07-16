@@ -1388,6 +1388,64 @@ def display_mode_outlier_report(specialized_analysis, analysis_config, fallback_
     plot_mode_outliers(specialized_analysis)
 
 
+def plotly_measurement_inspector(analysis_context, max_points=5000):
+    """Zoomable plotly view of the measurement with hover values.
+
+    Shows the primary value column raw and smoothed; in suspension mode the
+    single axis columns can be switched on via the legend. Display only:
+    long signals are downsampled for smooth interaction, all calculations
+    elsewhere use the full data.
+    """
+    import plotly.graph_objects as go
+
+    df_analysis = analysis_context["df_analysis"]
+    time_column = analysis_context["time_column"]
+    value_column = analysis_context["value_column"]
+    config = analysis_context["config"]
+    smoothing_window = int(config.get("smoothing_window", 5))
+
+    step = max(1, len(df_analysis) // max_points)
+    time_values = df_analysis[time_column].iloc[::step]
+
+    columns = [(value_column, True)]
+    for key in ("main_axis_column", "lateral_axis_column", "vertical_axis_column"):
+        column = config.get(key)
+        if column and column in df_analysis.columns and column != value_column:
+            columns.append((column, False))
+
+    fig = go.Figure()
+    for column, visible in columns:
+        smoothed = (
+            df_analysis[column]
+            .rolling(window=smoothing_window, center=True, min_periods=1)
+            .mean()
+            .iloc[::step]
+        )
+        fig.add_trace(go.Scatter(
+            x=time_values, y=df_analysis[column].iloc[::step], mode="lines",
+            name=f"{column} (raw)", opacity=0.4,
+            visible=True if visible else "legendonly",
+        ))
+        fig.add_trace(go.Scatter(
+            x=time_values, y=smoothed, mode="lines",
+            name=f"{column} (smoothed, window={smoothing_window})",
+            visible=True if visible else "legendonly",
+        ))
+
+    resolution_note = f"display shows every {step}. sample" if step > 1 else "full resolution"
+    fig.update_layout(
+        title=f"Signal inspector - drag to zoom, hover for values, click legend entries to show/hide ({resolution_note})",
+        xaxis_title=time_column,
+        yaxis_title=value_column,
+        height=480,
+        hovermode="x unified",
+        xaxis=dict(rangeslider=dict(visible=True)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        margin=dict(t=110),
+    )
+    fig.show()
+
+
 def interactive_smoothing_explorer(analysis_context):
     """Slider to explore how the smoothing window changes the smoothed signal.
 

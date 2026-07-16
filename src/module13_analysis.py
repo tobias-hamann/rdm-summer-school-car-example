@@ -90,6 +90,100 @@ def run_module13_reuse_analysis(analysis_context, metadata):
     raise ValueError(f"No Module 13 analysis is configured for {analysis_key!r}.")
 
 
+def plotly_reuse_explorer(module13_result, max_points=4000):
+    """Zoomable plotly view of the Module 13 result with hover details.
+
+    Drivetrain: illuminance signal with the retained bright phases shaded
+    green/red against the comparison threshold. Suspension: the estimated 2D
+    route with time, distance, heading, and speed on hover. Display only:
+    long series are downsampled for smooth interaction.
+    """
+    import plotly.graph_objects as go
+
+    if module13_result["analysis_key"] == "drivetrain_illuminance":
+        result = module13_result["reuse_result"]
+        df = result["signal"]
+        phases = result["phases"]
+        time_column = result["time_column"]
+        value_column = result["value_column"]
+        signal_column = result["signal_column"]
+
+        step = max(1, len(df) // max_points)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df[time_column].iloc[::step], y=df[value_column].iloc[::step],
+            mode="lines", name="raw illuminance", opacity=0.4,
+        ))
+        if signal_column != value_column:
+            fig.add_trace(go.Scatter(
+                x=df[time_column].iloc[::step], y=df[signal_column].iloc[::step],
+                mode="lines", name="smoothed signal",
+            ))
+        for _, phase in phases.iterrows():
+            fig.add_vrect(
+                x0=phase["start_s"], x1=phase["end_s"],
+                fillcolor="#22c55e" if phase["above_minimum"] else "#ef4444",
+                opacity=0.18, line_width=0,
+            )
+        fig.add_trace(go.Scatter(
+            x=(phases["start_s"] + phases["end_s"]) / 2,
+            y=phases["mean_illuminance_lx"],
+            mode="markers", name="bright-phase mean",
+            marker=dict(size=9, color=["#16a34a" if above else "#dc2626" for above in phases["above_minimum"]]),
+            customdata=phases[["bright_phase", "duration_s", "mean_illuminance_lx"]],
+            hovertemplate=(
+                "phase %{customdata[0]}<br>duration %{customdata[1]:.2f} s<br>"
+                "mean %{customdata[2]:.1f} lx<extra></extra>"
+            ),
+        ))
+        fig.add_hline(y=result["detection_threshold_lx"], line_dash="dot", line_color="#64748b",
+                      annotation_text="detection threshold")
+        fig.add_hline(y=result["minimum_lx"], line_dash="dash", line_color="#dc2626",
+                      annotation_text=f"comparison threshold {result['minimum_lx']:g} lx")
+        fig.update_layout(
+            title="Bright phases - zoom in, hover the phase markers for details",
+            xaxis_title=time_column, yaxis_title=value_column, height=480,
+            xaxis=dict(rangeslider=dict(visible=True)),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            margin=dict(t=90),
+        )
+        fig.show()
+        return
+
+    route_result = module13_result["route_result"]
+    route = route_result["route"]
+    time_column = route_result["time_column"]
+    step = max(1, len(route) // max_points)
+    route_display = route.iloc[::step]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=route_display["route_x_m"], y=route_display["route_y_m"],
+        mode="lines", name="estimated route", line=dict(color="#4f7cff", width=2),
+        customdata=route_display[[time_column, "route_distance_m", "route_heading_deg", "route_speed_m_per_s"]],
+        hovertemplate=(
+            "t = %{customdata[0]:.2f} s<br>distance %{customdata[1]:.1f} m<br>"
+            "heading %{customdata[2]:.0f} deg<br>speed %{customdata[3]:.2f} m/s<extra></extra>"
+        ),
+    ))
+    fig.add_trace(go.Scatter(
+        x=[route["route_x_m"].iloc[0]], y=[route["route_y_m"].iloc[0]],
+        mode="markers", name="start", marker=dict(size=13, color="#16a34a"),
+    ))
+    fig.add_trace(go.Scatter(
+        x=[route["route_x_m"].iloc[-1]], y=[route["route_y_m"].iloc[-1]],
+        mode="markers", name="end", marker=dict(size=13, color="#dc2626", symbol="x"),
+    ))
+    fig.update_layout(
+        title="Estimated 2D route - zoom in, hover the line for time, distance, heading, and speed",
+        xaxis_title="x from start (m)", yaxis_title="y from start (m)", height=550,
+        yaxis=dict(scaleanchor="x", scaleratio=1),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        margin=dict(t=90),
+    )
+    fig.show()
+
+
 def interactive_sensitivity_explorer(analysis_context, metadata):
     """Slider to explore the mode-specific key parameter live.
 

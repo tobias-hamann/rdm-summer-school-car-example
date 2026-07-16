@@ -5,3 +5,4 @@ openpyxl
 xlrd
 ipywidgets
 ipykernel
+plotly
