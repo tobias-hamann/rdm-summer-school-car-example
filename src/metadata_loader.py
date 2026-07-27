@@ -218,6 +218,8 @@ def infer_measurement_type(recorded_data_path):
         return "suspension"
     if "/drivetrain/" in path_text or path_text.startswith("data/drivetrain/"):
         return "drivetrain"
+    if "/sampling/" in path_text or path_text.startswith("data/sampling/"):
+        return "sampling"
     return DEFAULT_MEASUREMENT_TYPE
 
 
