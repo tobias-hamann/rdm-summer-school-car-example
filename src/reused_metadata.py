@@ -31,6 +31,12 @@ def default_reuse_analysis_metadata():
             "route_max_yaw_rate_deg_per_s": 90.0,
             "route_deadbands_to_compare_m_per_s2": [0.0, 0.05, 0.1, 0.2],
         },
+        "suspension_angular_velocity": {
+            "turn_initial_heading_deg": 0.0,
+            "turn_yaw_rate_deadband_deg_per_s": 10.0,
+            "turn_min_duration_s": 0.3,
+            "turn_deadbands_to_compare_deg_per_s": [5.0, 10.0, 20.0, 40.0],
+        },
     }
 
 
@@ -104,6 +110,11 @@ def validate_reuse_analysis_metadata(analysis_key, config):
         ]:
             if not isinstance(config.get(key), bool):
                 errors.append({"path": key, "message": "must be true or false"})
+    elif analysis_key == "suspension_angular_velocity":
+        require_number("turn_initial_heading_deg", minimum=-360, maximum=360)
+        require_number("turn_yaw_rate_deadband_deg_per_s", minimum=0, maximum=360)
+        require_number("turn_min_duration_s", minimum=0)
+        require_number_list("turn_deadbands_to_compare_deg_per_s", minimum=0)
     else:
         errors.append({"path": "analysis_key", "message": f"unsupported analysis key {analysis_key!r}"})
     return {"valid": not errors, "errors": errors, "warnings": []}
@@ -180,9 +191,9 @@ def write_lab13_artifacts(
 ):
     """Write the reused artefact CSVs and metadata_reused.json for Lab 13.
 
-    Stores the result summary, the detailed table (bright phases or route
-    points), and the complete reuse metadata record next to each other in
-    outputs/<lab13-dataset>/. Returns the written paths.
+    Stores the result summary, the detailed table (bright phases, route
+    points, or detected turns), and the complete reuse metadata record next to
+    each other in outputs/<lab13-dataset>/. Returns the written paths.
     """
     safe_dataset_name = Path(selected_data_path).stem.replace(" ", "_")
     output_prefix = f"lab13_{metadata.get('measurement_type', 'measurement')}_{safe_dataset_name}"
@@ -193,11 +204,16 @@ def write_lab13_artifacts(
 
     reuse_result = module13_result["reuse_result"]
     route_result = module13_result["route_result"]
+    turn_result = module13_result.get("turn_result")
     parameter_table = module13_sensitivity["parameter_comparison"]
     if reuse_result is not None:
         new_insight_summary = reuse_result["summary"]
         detail_table = reuse_result["phases"]
         detail_output_path = output_dir / "bright_phases.csv"
+    elif turn_result is not None:
+        new_insight_summary = turn_result["summary"]
+        detail_table = turn_result["turns"]
+        detail_output_path = output_dir / "turns.csv"
     else:
         time_column = analysis_context["time_column"]
         route_columns = [

@@ -8,7 +8,11 @@ questions go beyond the original purpose of the measurements.
 import numpy as np
 import pandas as pd
 
-from data_format_loader import calculate_drivetrain_rotation, calculate_suspension_motion
+from data_format_loader import (
+    calculate_drivetrain_rotation,
+    calculate_suspension_motion,
+    calculate_suspension_orientation,
+)
 
 
 def get_module13_story(analysis_context):
@@ -53,6 +57,26 @@ def get_module13_story(analysis_context):
             ),
         }
 
+    if analysis_context["analysis_key"] == "suspension_angular_velocity":
+        return {
+            "mode": "Suspension - cornering behaviour",
+            "question": "How often did the vehicle turn, in which direction, and how sharply?",
+            "assumptions": (
+                "The configured yaw axis stays roughly vertical, so its rate describes turning rather "
+                "than roll or pitch, and yaw rates below the configured deadband are treated as driving straight."
+            ),
+            "analytical_choice": (
+                "The measured yaw rate is integrated to a relative heading. Samples above the "
+                "turn_yaw_rate_deadband_deg_per_s reuse parameter are grouped into turns by sign, and only "
+                "turns lasting at least turn_min_duration_s are kept."
+            ),
+            "limitations": (
+                "A gyroscope measures rotation only. Without speed the turn radius and the driven path "
+                "cannot be reconstructed, and uncorrected sensor bias makes the integrated heading drift "
+                "over time, so headings are relative and exploratory."
+            ),
+        }
+
     return {
         "mode": analysis_context["analysis_key"],
         "question": "Which new exploratory question can this reused dataset support?",
@@ -71,7 +95,7 @@ def run_module13_reuse_analysis(analysis_context, metadata):
     """Run, display, and plot the mode-specific reuse analysis.
 
     Returns a result dictionary that the sensitivity and storage steps
-    consume; exactly one of 'reuse_result' and 'route_result' is set.
+    consume; exactly one of 'reuse_result', 'route_result', and 'turn_result' is set.
     """
     from IPython.display import display
 
@@ -81,12 +105,18 @@ def run_module13_reuse_analysis(analysis_context, metadata):
         display(reuse_result["summary"])
         display(reuse_result["phases"])
         plot_bright_phase_working_conditions(reuse_result)
-        return {"analysis_key": analysis_key, "reuse_result": reuse_result, "route_result": None}
+        return {"analysis_key": analysis_key, "reuse_result": reuse_result, "route_result": None, "turn_result": None}
     if analysis_key == "suspension_acceleration":
         route_result = calculate_suspension_route(analysis_context)
         display(route_result["summary"])
         plot_suspension_route(route_result)
-        return {"analysis_key": analysis_key, "reuse_result": None, "route_result": route_result}
+        return {"analysis_key": analysis_key, "reuse_result": None, "route_result": route_result, "turn_result": None}
+    if analysis_key == "suspension_angular_velocity":
+        turn_result = calculate_suspension_turns(analysis_context)
+        display(turn_result["summary"])
+        display(turn_result["turns"])
+        plot_suspension_turns(turn_result)
+        return {"analysis_key": analysis_key, "reuse_result": None, "route_result": None, "turn_result": turn_result}
     raise ValueError(f"No Module 13 analysis is configured for {analysis_key!r}.")
 
 
@@ -143,6 +173,55 @@ def plotly_reuse_explorer(module13_result, max_points=4000):
         fig.update_layout(
             title="Bright phases - zoom in, hover the phase markers for details",
             xaxis_title=time_column, yaxis_title=value_column, height=480,
+            xaxis=dict(rangeslider=dict(visible=True)),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            margin=dict(t=90),
+        )
+        fig.show()
+        return
+
+    if module13_result["analysis_key"] == "suspension_angular_velocity":
+        turn_result = module13_result["turn_result"]
+        signal = turn_result["signal"]
+        turns = turn_result["turns"]
+        time_column = turn_result["time_column"]
+        deadband = turn_result["deadband_deg_per_s"]
+
+        step = max(1, len(signal) // max_points)
+        signal_display = signal.iloc[::step]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=signal_display[time_column], y=signal_display["turn_yaw_rate_deg_per_s"],
+            mode="lines", name="yaw rate", line=dict(color="#172554"),
+        ))
+        fig.add_trace(go.Scatter(
+            x=signal_display[time_column], y=signal_display["turn_heading_deg"],
+            mode="lines", name="relative heading", line=dict(color="#4f7cff"), yaxis="y2",
+        ))
+        for _, turn in turns.iterrows():
+            fig.add_vrect(
+                x0=turn["start_s"], x1=turn["end_s"],
+                fillcolor="#16a34a" if turn["direction"] == "left" else "#f97316",
+                opacity=0.18, line_width=0,
+            )
+        if not turns.empty:
+            fig.add_trace(go.Scatter(
+                x=(turns["start_s"] + turns["end_s"]) / 2,
+                y=turns["peak_yaw_rate_deg_per_s"],
+                mode="markers", name="turn peak",
+                marker=dict(size=9, color=["#16a34a" if d == "left" else "#f97316" for d in turns["direction"]]),
+                customdata=turns[["turn", "direction", "duration_s", "heading_change_deg"]],
+                hovertemplate=(
+                    "turn %{customdata[0]} (%{customdata[1]})<br>duration %{customdata[2]:.2f} s<br>"
+                    "heading change %{customdata[3]:.1f} deg<extra></extra>"
+                ),
+            ))
+        for level in [deadband, -deadband]:
+            fig.add_hline(y=level, line_dash="dash", line_color="#dc2626")
+        fig.update_layout(
+            title=f"Detected turns - green = left, orange = right, deadband ±{deadband:g} deg/s",
+            xaxis_title=time_column, yaxis_title="Yaw rate (deg/s)", height=520,
+            yaxis2=dict(title="Heading from start (deg)", overlaying="y", side="right"),
             xaxis=dict(rangeslider=dict(visible=True)),
             legend=dict(orientation="h", yanchor="bottom", y=1.02),
             margin=dict(t=90),
@@ -234,6 +313,26 @@ def interactive_sensitivity_explorer(analysis_context, metadata):
 
         return
 
+    if analysis_key == "suspension_angular_velocity":
+        yaw_deadband_slider = FloatSlider(
+            value=float(config.get("turn_yaw_rate_deadband_deg_per_s", 10.0)),
+            min=0.0,
+            max=90.0,
+            step=1.0,
+            description="deadband",
+            continuous_update=False,
+        )
+
+        @interact(yaw_rate_deadband_deg_per_s=yaw_deadband_slider)
+        def explore_yaw_deadband(yaw_rate_deadband_deg_per_s):
+            result = calculate_suspension_turns(
+                analysis_context,
+                config_override={"turn_yaw_rate_deadband_deg_per_s": yaw_rate_deadband_deg_per_s},
+            )
+            plot_suspension_turns(result)
+
+        return
+
     raise ValueError(f"No Module 13 analysis is configured for {analysis_key!r}.")
 
 
@@ -248,6 +347,15 @@ def run_module13_parameter_sensitivity(analysis_context, module13_result):
         display(parameter_comparison)
         plot_bright_phase_threshold_comparison(parameter_comparison)
         return {"parameter_comparison": parameter_comparison, "comparison_results": None}
+
+    if module13_result["analysis_key"] == "suspension_angular_velocity":
+        deadbands_deg_per_s = analysis_config.get(
+            "turn_deadbands_to_compare_deg_per_s", [5.0, 10.0, 20.0, 40.0]
+        )
+        parameter_comparison, comparison_results = compare_turn_deadbands(analysis_context, deadbands_deg_per_s)
+        display(parameter_comparison)
+        plot_turn_deadband_comparison(parameter_comparison)
+        return {"parameter_comparison": parameter_comparison, "comparison_results": comparison_results}
 
     deadbands = analysis_config.get("route_deadbands_to_compare_m_per_s2", [0.0, 0.05, 0.1, 0.2])
     parameter_comparison, comparison_results = compare_route_deadbands(analysis_context, deadbands)
@@ -498,6 +606,197 @@ def calculate_suspension_route(analysis_context, config_override=None):
         "time_column": time_column,
         "config": config,
     }
+
+
+def calculate_suspension_turns(analysis_context, config_override=None):
+    """Detect turns and a relative heading from measured yaw rate."""
+    if analysis_context["analysis_key"] != "suspension_angular_velocity":
+        raise ValueError("Turn detection requires suspension angular velocity data.")
+
+    config = dict(analysis_context["config"])
+    config.update(config_override or {})
+    scenario = dict(analysis_context)
+    scenario["config"] = config
+    orientation_result = calculate_suspension_orientation(scenario)
+    turn_signal = orientation_result["orientation"].copy()
+    time_column = analysis_context["time_column"]
+
+    time = turn_signal[time_column].to_numpy(dtype=float)
+    dt = np.diff(time, prepend=time[0])
+    if np.any(dt < 0):
+        raise ValueError("Time values must be sorted before turn detection.")
+
+    yaw_rate_deg_per_s = np.rad2deg(turn_signal["yaw_rate_rad_per_s"].to_numpy(dtype=float))
+    initial_heading = float(config.get("turn_initial_heading_deg", 0.0))
+    heading = initial_heading + _cumulative_trapezoid(yaw_rate_deg_per_s, dt)
+
+    deadband = float(config.get("turn_yaw_rate_deadband_deg_per_s", 10.0))
+    # 0 = straight, +1 = turning left, -1 = turning right. The sign is what
+    # separates neighbouring turns, so a sign change starts a new segment even
+    # without a straight stretch in between.
+    direction = np.zeros(len(yaw_rate_deg_per_s), dtype=int)
+    direction[yaw_rate_deg_per_s > deadband] = 1
+    direction[yaw_rate_deg_per_s < -deadband] = -1
+
+    turn_signal["turn_yaw_rate_deg_per_s"] = yaw_rate_deg_per_s
+    turn_signal["turn_heading_deg"] = heading
+    turn_signal["turn_direction"] = direction
+
+    minimum_duration = float(config.get("turn_min_duration_s", 0.3))
+    segment_id = np.cumsum(np.r_[True, direction[1:] != direction[:-1]]) - 1
+    turn_signal["turn_segment"] = segment_id
+
+    turn_rows = []
+    for segment in np.unique(segment_id[direction != 0]):
+        rows = turn_signal[turn_signal["turn_segment"] == segment]
+        duration = float(rows[time_column].iloc[-1] - rows[time_column].iloc[0])
+        if duration < minimum_duration:
+            continue
+        segment_direction = int(rows["turn_direction"].iloc[0])
+        turn_rows.append(
+            {
+                "turn": len(turn_rows) + 1,
+                "start_s": float(rows[time_column].iloc[0]),
+                "end_s": float(rows[time_column].iloc[-1]),
+                "duration_s": duration,
+                "direction": "left" if segment_direction > 0 else "right",
+                "heading_change_deg": float(rows["turn_heading_deg"].iloc[-1] - rows["turn_heading_deg"].iloc[0]),
+                "mean_yaw_rate_deg_per_s": float(rows["turn_yaw_rate_deg_per_s"].mean()),
+                "peak_yaw_rate_deg_per_s": float(
+                    rows["turn_yaw_rate_deg_per_s"].iloc[rows["turn_yaw_rate_deg_per_s"].abs().to_numpy().argmax()]
+                ),
+            }
+        )
+
+    turns = pd.DataFrame(
+        turn_rows,
+        columns=[
+            "turn",
+            "start_s",
+            "end_s",
+            "duration_s",
+            "direction",
+            "heading_change_deg",
+            "mean_yaw_rate_deg_per_s",
+            "peak_yaw_rate_deg_per_s",
+        ],
+    )
+    turning_time = float(turns["duration_s"].sum()) if not turns.empty else 0.0
+    measured_duration = float(time[-1] - time[0]) if len(time) > 1 else 0.0
+
+    summary = pd.DataFrame(
+        [
+            {"metric": "detected_turns", "value": float(len(turns)), "unit": "turns"},
+            {"metric": "left_turns", "value": float((turns["direction"] == "left").sum()) if not turns.empty else 0.0, "unit": "turns"},
+            {"metric": "right_turns", "value": float((turns["direction"] == "right").sum()) if not turns.empty else 0.0, "unit": "turns"},
+            {"metric": "total_absolute_heading_change", "value": float(turns["heading_change_deg"].abs().sum()) if not turns.empty else 0.0, "unit": "deg"},
+            {"metric": "net_heading_change", "value": float(heading[-1] - initial_heading), "unit": "deg"},
+            {"metric": "maximum_absolute_yaw_rate", "value": float(np.abs(yaw_rate_deg_per_s).max()), "unit": "deg/s"},
+            {"metric": "time_spent_turning", "value": turning_time, "unit": "s"},
+            {"metric": "share_of_time_turning", "value": (turning_time / measured_duration * 100) if measured_duration else 0.0, "unit": "%"},
+        ]
+    )
+    return {
+        "analysis_key": analysis_context["analysis_key"],
+        "summary": summary,
+        "turns": turns,
+        "signal": turn_signal,
+        "time_column": time_column,
+        "deadband_deg_per_s": deadband,
+        "config": config,
+    }
+
+
+def compare_turn_deadbands(analysis_context, deadbands_deg_per_s):
+    """Compare turn detection under different yaw-rate deadbands."""
+    rows = []
+    results = {}
+    for deadband in deadbands_deg_per_s:
+        deadband = float(deadband)
+        result = calculate_suspension_turns(
+            analysis_context,
+            config_override={"turn_yaw_rate_deadband_deg_per_s": deadband},
+        )
+        turns = result["turns"]
+        results[deadband] = result
+        rows.append(
+            {
+                "yaw_rate_deadband_deg_per_s": deadband,
+                "detected_turns": int(len(turns)),
+                "left_turns": int((turns["direction"] == "left").sum()) if not turns.empty else 0,
+                "right_turns": int((turns["direction"] == "right").sum()) if not turns.empty else 0,
+                "total_absolute_heading_change_deg": float(turns["heading_change_deg"].abs().sum()) if not turns.empty else 0.0,
+                "time_spent_turning_s": float(turns["duration_s"].sum()) if not turns.empty else 0.0,
+            }
+        )
+    return pd.DataFrame(rows), results
+
+
+def plot_suspension_turns(turn_result):
+    import matplotlib.pyplot as plt
+
+    signal = turn_result["signal"]
+    turns = turn_result["turns"]
+    time_column = turn_result["time_column"]
+    deadband = turn_result["deadband_deg_per_s"]
+    fig, axes = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
+
+    axes[0].plot(signal[time_column], signal["turn_yaw_rate_deg_per_s"], color="#172554", linewidth=1.5, label="yaw rate")
+    axes[0].axhline(deadband, color="#dc2626", linestyle="--", alpha=0.7, label=f"deadband ±{deadband:g} deg/s")
+    axes[0].axhline(-deadband, color="#dc2626", linestyle="--", alpha=0.7)
+    axes[0].axhline(0, color="#64748b", linewidth=0.8)
+    for _, turn in turns.iterrows():
+        axes[0].axvspan(
+            turn["start_s"],
+            turn["end_s"],
+            color="#16a34a" if turn["direction"] == "left" else "#f97316",
+            alpha=0.18,
+        )
+    axes[0].set_ylabel("Yaw rate (deg/s)")
+    axes[0].set_title("Detected Turns (green = left, orange = right)")
+    axes[0].legend(loc="upper left")
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(signal[time_column], signal["turn_heading_deg"], color="#4f7cff", linewidth=2, label="relative heading")
+    axes[1].set_ylabel("Heading from start (deg)")
+    axes[1].set_xlabel(time_column)
+    axes[1].legend(loc="upper left")
+    axes[1].grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    plt.show()
+    return fig, axes
+
+
+def plot_turn_deadband_comparison(parameter_comparison):
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+    axes[0].plot(
+        parameter_comparison["yaw_rate_deadband_deg_per_s"],
+        parameter_comparison["detected_turns"],
+        marker="o",
+        color="#172554",
+    )
+    axes[0].set_title("Detected Turns by Yaw-Rate Deadband")
+    axes[0].set_xlabel("Yaw-rate deadband (deg/s)")
+    axes[0].set_ylabel("Detected turns")
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(
+        parameter_comparison["yaw_rate_deadband_deg_per_s"],
+        parameter_comparison["total_absolute_heading_change_deg"],
+        marker="o",
+        color="#16a34a",
+    )
+    axes[1].set_title("Total Absolute Heading Change by Deadband")
+    axes[1].set_xlabel("Yaw-rate deadband (deg/s)")
+    axes[1].set_ylabel("Total absolute heading change (deg)")
+    axes[1].grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    plt.show()
+    return fig, axes
 
 
 def compare_route_deadbands(analysis_context, deadbands_m_per_s2):

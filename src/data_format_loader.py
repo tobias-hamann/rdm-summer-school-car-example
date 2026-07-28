@@ -3,6 +3,7 @@ import argparse
 import csv
 import json
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -115,6 +116,31 @@ def load_table(path, csv_format=None, **kwargs):
     # Fail loudly for unsupported formats because silent fallbacks can hide data
     # handling errors early in the pipeline.
     raise ValueError(f"Unsupported file type: {suffix}")
+
+
+def read_column_names(path):
+    """Read only the header row, so quantity detection stays cheap for large files."""
+    path = Path(path)
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".csv":
+            csv_format = detect_csv_format(path)
+            frame = pd.read_csv(
+                path,
+                sep=csv_format["delimiter"],
+                decimal=csv_format["decimal"],
+                encoding=csv_format["encoding"],
+                nrows=0,
+            )
+        elif suffix in [".xlsx", ".xls"]:
+            frame = pd.read_excel(path, nrows=0)
+        else:
+            return []
+    except Exception:
+        # Header inspection is a convenience for metadata inference; an
+        # unreadable file is reported later by the loader itself.
+        return []
+    return frame.columns.astype(str).tolist()
 
 
 def detect_format(path):
@@ -263,6 +289,110 @@ def get_analysis_key(metadata):
     return f"{measurement_type}_{quantity}"
 
 
+# phyphox translates the descriptive part of a column header depending on the
+# app language ("Gyroscope", "Gyroskop", "Jiroskop", ...) but keeps the axis
+# letter and the unit. The unit is therefore the only reliable, language
+# independent way to recognise which quantity a column holds.
+QUANTITY_UNIT_PATTERNS = {
+    "acceleration": ["m/s^2", "m/s²", "m/s2"],
+    "angular_velocity": ["rad/s"],
+    "illuminance": ["(lx)", "(lux)"],
+}
+TIME_UNIT_PATTERN = "(s)"
+
+
+def column_has_unit(column, unit_patterns):
+    lowered = str(column).lower()
+    return any(pattern.lower() in lowered for pattern in unit_patterns)
+
+
+def detect_quantity_from_columns(columns):
+    """Return the quantity implied by the column units, or None if unclear."""
+    matches = [
+        quantity
+        for quantity, unit_patterns in QUANTITY_UNIT_PATTERNS.items()
+        if any(column_has_unit(column, unit_patterns) for column in columns)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def verify_columns_match_quantity(columns, quantity):
+    """Fail early and clearly when a file holds a different quantity than declared.
+
+    Without this check a gyroscope export can be analysed as acceleration as
+    soon as the column names in metadata.json are adjusted, which silently
+    produces speed and G-force numbers from rad/s values.
+    """
+    if quantity not in QUANTITY_UNIT_PATTERNS:
+        return
+    detected = detect_quantity_from_columns(columns)
+    if detected is None or detected == quantity:
+        return
+    raise ValueError(
+        f"The selected file contains {detected} data in "
+        f"{QUANTITY_UNIT_PATTERNS[detected][0]}, but metadata.json declares quantity "
+        f"{quantity!r} in {QUANTITY_UNIT_PATTERNS[quantity][0]}. Either point "
+        f"recorded_data_path at {quantity} data or set quantity to {detected!r}."
+    )
+
+
+def _find_time_column(columns, numeric_like, df_raw=None):
+    """Find the time column without relying on the header language.
+
+    The "(s)" unit survives translation, so it is tried first. Only if that
+    fails does this fall back to a strictly increasing numeric column, which is
+    safer than trusting the column order.
+    """
+    unit_matches = [column for column in columns if column_has_unit(column, [TIME_UNIT_PATTERN])]
+    if unit_matches:
+        return unit_matches[0]
+
+    keyword_matches = [
+        column for column in columns if "time" in column.lower() or "zeit" in column.lower()
+    ]
+    if keyword_matches:
+        return keyword_matches[0]
+
+    if df_raw is not None:
+        for column in numeric_like:
+            values = pd.to_numeric(df_raw[column], errors="coerce").dropna()
+            if len(values) > 1 and values.is_monotonic_increasing:
+                return column
+
+    return numeric_like[0]
+
+
+def _time_column_of(frame):
+    """Pick the time column of a result frame without assuming an English header."""
+    columns = frame.columns.astype(str).tolist()
+    return _find_time_column(columns, columns, frame)
+
+
+def _find_magnitude_column(columns, unit_patterns, axis_columns, fallback_column):
+    """Find the absolute-magnitude column for a set of axis columns.
+
+    phyphox translates "Absolute", so the magnitude column is identified as the
+    remaining column that carries the same unit as the axes. Falling back to an
+    axis column is reported instead of happening silently, because the primary
+    signal, smoothing, and outlier detection all run on this column.
+    """
+    magnitude_candidates = [
+        column
+        for column in columns
+        if column not in axis_columns and column_has_unit(column, unit_patterns)
+    ]
+    if magnitude_candidates:
+        return magnitude_candidates[0]
+
+    warnings.warn(
+        f"No absolute-magnitude column in {unit_patterns[0]} was found; falling back to "
+        f"{fallback_column!r}. The primary signal, smoothing, and outlier detection "
+        f"therefore describe one axis instead of the total magnitude.",
+        stacklevel=2,
+    )
+    return fallback_column
+
+
 def get_analysis_config(metadata, df_raw=None):
     analysis_key = get_analysis_key(metadata)
     all_configs = metadata.get("analysis", {})
@@ -284,8 +414,7 @@ def get_analysis_config(metadata, df_raw=None):
         columns = df_raw.columns.astype(str).tolist()
         numeric_like = _numeric_candidate_columns(df_raw)
         if config.get("time_column") not in columns:
-            time_candidates = [column for column in columns if "time" in column.lower() or "zeit" in column.lower()]
-            config["time_column"] = time_candidates[0] if time_candidates else numeric_like[0]
+            config["time_column"] = _find_time_column(columns, numeric_like, df_raw)
 
         if analysis_key == "suspension_acceleration":
             config["main_axis_column"] = _existing_or_first_match(
@@ -303,11 +432,17 @@ def get_analysis_config(metadata, df_raw=None):
                 columns,
                 ["linear acceleration z", "acceleration z", "z (m/s"],
             )
-            config["value_column"] = _existing_or_first_match(
-                config.get("value_column"),
-                columns,
-                ["absolute acceleration", config.get("main_axis_column", "")],
-            )
+            if config.get("value_column") not in columns:
+                config["value_column"] = _find_magnitude_column(
+                    columns,
+                    QUANTITY_UNIT_PATTERNS["acceleration"],
+                    [
+                        config["main_axis_column"],
+                        config["lateral_axis_column"],
+                        config["vertical_axis_column"],
+                    ],
+                    config["main_axis_column"],
+                )
         elif analysis_key == "suspension_angular_velocity":
             config["roll_rate_column"] = _existing_or_first_match(
                 config.get("roll_rate_column"),
@@ -324,11 +459,17 @@ def get_analysis_config(metadata, df_raw=None):
                 columns,
                 ["gyroscope z", "rotation z", "z (rad/s"],
             )
-            config["value_column"] = _existing_or_first_match(
-                config.get("value_column"),
-                columns,
-                ["absolute (rad/s)", "absolute angular", config.get("yaw_rate_column", "")],
-            )
+            if config.get("value_column") not in columns:
+                config["value_column"] = _find_magnitude_column(
+                    columns,
+                    QUANTITY_UNIT_PATTERNS["angular_velocity"],
+                    [
+                        config["roll_rate_column"],
+                        config["pitch_rate_column"],
+                        config["yaw_rate_column"],
+                    ],
+                    config["yaw_rate_column"],
+                )
         elif config.get("value_column") not in columns:
             value_candidates = [column for column in numeric_like if column != config["time_column"]]
             config["value_column"] = value_candidates[0] if value_candidates else numeric_like[0]
@@ -337,6 +478,10 @@ def get_analysis_config(metadata, df_raw=None):
 
 
 def prepare_measurement_analysis(df_raw, metadata):
+    verify_columns_match_quantity(
+        df_raw.columns.astype(str).tolist(),
+        metadata.get("quantity"),
+    )
     config = get_analysis_config(metadata, df_raw)
     analysis_key = get_analysis_key(metadata)
 
@@ -515,8 +660,7 @@ def prepare_analysis_columns(
         raise ValueError("No numeric columns found. Check whether the selected file contains measurement values.")
 
     if time_column not in df.columns:
-        time_candidates = [column for column in numeric_columns if "time" in column.lower() or "zeit" in column.lower()]
-        time_column = time_candidates[0] if time_candidates else numeric_columns[0]
+        time_column = _find_time_column(df.columns.astype(str).tolist(), numeric_columns, df)
 
     if value_column is None:
         value_candidates = [column for column in numeric_columns if column != time_column]
@@ -1189,7 +1333,7 @@ def plot_suspension_speed_diagram(suspension_motion):
     import matplotlib.pyplot as plt
 
     motion = suspension_motion["motion"]
-    time_column = "Time (s)" if "Time (s)" in motion.columns else motion.columns[0]
+    time_column = _time_column_of(motion)
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(motion[time_column], motion["speed_m_per_s"], label="speed", color="#172554")
     ax.set_title("Estimated Vehicle Speed")
@@ -1205,7 +1349,7 @@ def plot_suspension_orientation_rate_diagram(suspension_orientation):
     import matplotlib.pyplot as plt
 
     orientation = suspension_orientation["orientation"]
-    time_column = "Time (s)" if "Time (s)" in orientation.columns else orientation.columns[0]
+    time_column = _time_column_of(orientation)
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(orientation[time_column], orientation["absolute_rate_rad_per_s"], label="absolute angular speed", color="#172554")
     ax.set_title("Absolute Angular Speed")
@@ -1221,7 +1365,7 @@ def plot_suspension_g_force_diagrams(suspension_motion):
     import matplotlib.pyplot as plt
 
     motion = suspension_motion["motion"]
-    time_column = "Time (s)" if "Time (s)" in motion.columns else motion.columns[0]
+    time_column = _time_column_of(motion)
     fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
     axis_specs = [
         ("main_axis_g", "main axis g", "#16a34a"),
@@ -1246,7 +1390,7 @@ def plot_suspension_orientation_angle_diagrams(suspension_orientation):
     import matplotlib.pyplot as plt
 
     orientation = suspension_orientation["orientation"]
-    time_column = "Time (s)" if "Time (s)" in orientation.columns else orientation.columns[0]
+    time_column = _time_column_of(orientation)
     fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
     axis_specs = [
         ("roll_angle_deg", "roll angle", "#16a34a"),
@@ -1320,7 +1464,7 @@ def detect_suspension_orientation_outliers(suspension_orientation, z_threshold=3
 def plot_suspension_outlier_diagram(suspension_outliers):
     import matplotlib.pyplot as plt
 
-    time_column = "Time (s)" if "Time (s)" in suspension_outliers.columns else suspension_outliers.columns[0]
+    time_column = _time_column_of(suspension_outliers)
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(suspension_outliers[time_column], suspension_outliers["speed_m_per_s"], label="speed", color="#172554")
     speed_outliers = suspension_outliers[suspension_outliers["possible_speed_m_per_s_outlier"]]
@@ -1357,7 +1501,7 @@ def plot_suspension_outlier_diagram(suspension_outliers):
 def plot_suspension_orientation_outlier_diagram(suspension_outliers):
     import matplotlib.pyplot as plt
 
-    time_column = "Time (s)" if "Time (s)" in suspension_outliers.columns else suspension_outliers.columns[0]
+    time_column = _time_column_of(suspension_outliers)
     fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
 
     axes[0].plot(suspension_outliers[time_column], suspension_outliers["absolute_rate_rad_per_s"], label="absolute angular speed", color="#172554")

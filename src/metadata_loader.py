@@ -2,9 +2,18 @@ from pathlib import Path
 import argparse
 import json
 
+from data_format_loader import detect_quantity_from_columns, read_column_names
+
 
 DEFAULT_RECORDED_DATA_PATH = "data/drivetrain/Example/Raw Data.csv"
 DEFAULT_MEASUREMENT_TYPE = "drivetrain"
+# Each quantity is analysed by exactly one measurement type. Inference uses this
+# to stay inside the combinations that metadata validation accepts.
+MEASUREMENT_TYPE_BY_QUANTITY = {
+    "illuminance": "drivetrain",
+    "acceleration": "suspension",
+    "angular_velocity": "suspension",
+}
 PUBLIC_METADATA_FILENAME = "metadata.json"
 
 # Sentinel for notebook inputs: KEEP means "keep the value from the base
@@ -230,16 +239,20 @@ def get_recorded_data_path(metadata, default=DEFAULT_RECORDED_DATA_PATH):
     return default
 
 
-def infer_measurement_type(recorded_data_path):
+def infer_measurement_type(recorded_data_path, project_root=None):
     # Keep inference simple and transparent for the course example data.
     path_text = str(recorded_data_path).replace("\\", "/").lower()
     if "/suspension/" in path_text or path_text.startswith("data/suspension/"):
         return "suspension"
     if "/drivetrain/" in path_text or path_text.startswith("data/drivetrain/"):
         return "drivetrain"
-    if "/sampling/" in path_text or path_text.startswith("data/sampling/"):
-        return "sampling"
-    return DEFAULT_MEASUREMENT_TYPE
+
+    # Folders such as data/sampling/ name the lab exercise, not the sensor, and
+    # "sampling" is not a measurement type any analysis mode supports. Derive
+    # the type from the quantity the file actually contains so that inference
+    # can only produce a combination the rest of the pipeline accepts.
+    quantity = infer_quantity(recorded_data_path, project_root)
+    return MEASUREMENT_TYPE_BY_QUANTITY.get(quantity, DEFAULT_MEASUREMENT_TYPE)
 
 
 def infer_run_name(recorded_data_path):
@@ -250,7 +263,19 @@ def infer_run_name(recorded_data_path):
     return path.stem or "Example"
 
 
-def infer_quantity(recorded_data_path):
+def infer_quantity(recorded_data_path, project_root=None):
+    # The units in the column headers describe the data itself, so they are
+    # checked before the path keywords, which only describe how someone
+    # happened to name the file. This also works for exports whose headers are
+    # in another language, because phyphox translates the label but not the unit.
+    path = Path(recorded_data_path)
+    if project_root is not None and not path.is_absolute():
+        path = Path(project_root) / path
+    if path.exists():
+        detected = detect_quantity_from_columns(read_column_names(path))
+        if detected is not None:
+            return detected
+
     path_text = str(recorded_data_path).replace("\\", "/").lower()
     if "beschleunigung" in path_text or "accel" in path_text:
         return "acceleration"
