@@ -4,6 +4,7 @@ import csv
 import json
 import re
 
+import numpy as np
 import pandas as pd
 
 
@@ -307,6 +308,27 @@ def get_analysis_config(metadata, df_raw=None):
                 columns,
                 ["absolute acceleration", config.get("main_axis_column", "")],
             )
+        elif analysis_key == "suspension_angular_velocity":
+            config["roll_rate_column"] = _existing_or_first_match(
+                config.get("roll_rate_column"),
+                columns,
+                ["gyroscope x", "rotation x", "x (rad/s"],
+            )
+            config["pitch_rate_column"] = _existing_or_first_match(
+                config.get("pitch_rate_column"),
+                columns,
+                ["gyroscope y", "rotation y", "y (rad/s"],
+            )
+            config["yaw_rate_column"] = _existing_or_first_match(
+                config.get("yaw_rate_column"),
+                columns,
+                ["gyroscope z", "rotation z", "z (rad/s"],
+            )
+            config["value_column"] = _existing_or_first_match(
+                config.get("value_column"),
+                columns,
+                ["absolute (rad/s)", "absolute angular", config.get("yaw_rate_column", "")],
+            )
         elif config.get("value_column") not in columns:
             value_candidates = [column for column in numeric_like if column != config["time_column"]]
             config["value_column"] = value_candidates[0] if value_candidates else numeric_like[0]
@@ -332,6 +354,14 @@ def prepare_measurement_analysis(df_raw, metadata):
                 config["main_axis_column"],
                 config["lateral_axis_column"],
                 config["vertical_axis_column"],
+            ]
+        )
+    elif analysis_key == "suspension_angular_velocity":
+        required_columns.extend(
+            [
+                config["roll_rate_column"],
+                config["pitch_rate_column"],
+                config["yaw_rate_column"],
             ]
         )
     required_columns = list(dict.fromkeys(required_columns))
@@ -360,6 +390,18 @@ def prepare_measurement_analysis(df_raw, metadata):
             ("main_axis", config["main_axis_column"]),
             ("lateral_axis", config["lateral_axis_column"]),
             ("vertical_axis", config["vertical_axis_column"]),
+        ]:
+            df_analysis = add_smoothed_values(
+                df_analysis,
+                column,
+                config.get("smoothing_window", 25),
+                output_column=f"{axis_name}_smoothed",
+            )
+    elif analysis_key == "suspension_angular_velocity":
+        for axis_name, column in [
+            ("roll_rate", config["roll_rate_column"]),
+            ("pitch_rate", config["pitch_rate_column"]),
+            ("yaw_rate", config["yaw_rate_column"]),
         ]:
             df_analysis = add_smoothed_values(
                 df_analysis,
@@ -414,6 +456,20 @@ def get_analysis_story(analysis_context):
             "specialized": "Vehicle speed is estimated from the configured main acceleration axis.",
             "outliers": "Acceleration, speed, and G-force outliers should be checked against the physical run.",
             "parameter_comparison": "The parameter comparison checks how smoothing changes all acceleration axes, speed, and G-force estimates.",
+        }
+
+    if analysis_context["analysis_key"] == "suspension_angular_velocity":
+        return {
+            "mode": "Suspension - Angular Velocity",
+            "section_6": (
+                "This analysis checks time-step quality, smooths all gyroscope axes, marks possible angular-rate "
+                "outliers, integrates roll, pitch, and yaw rates to exploratory orientation angles, and reports "
+                "that vehicle speed cannot be derived from gyroscope data alone."
+            ),
+            "primary_signal": "The gyroscope axes are plotted first so roll, pitch, and yaw motion are visible.",
+            "specialized": "Cumulative orientation angles are estimated by integrating the configured angular-rate axes.",
+            "outliers": "Large angular-rate or integrated-angle outliers should be checked against the physical run.",
+            "parameter_comparison": "The parameter comparison checks how smoothing changes the angular-rate and orientation estimates.",
         }
 
     return {
@@ -621,6 +677,41 @@ def plot_primary_measurement(analysis_context):
         plt.show()
         return fig, axes
 
+    if analysis_context["analysis_key"] == "suspension_angular_velocity":
+        fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
+        axis_specs = [
+            (config["roll_rate_column"], "roll_rate_smoothed", "roll rate", "#16a34a"),
+            (config["pitch_rate_column"], "pitch_rate_smoothed", "pitch rate", "#4f7cff"),
+            (config["yaw_rate_column"], "yaw_rate_smoothed", "yaw rate", "#172554"),
+        ]
+
+        for ax, (column, smoothed_column, label, color) in zip(axes, axis_specs):
+            if config.get("plot_raw_values", True):
+                ax.plot(
+                    df_analysis[time_column],
+                    df_analysis[column],
+                    label=label,
+                    color=color,
+                    alpha=0.35,
+                )
+            if config.get("plot_smoothed_values", True):
+                ax.plot(
+                    df_analysis[time_column],
+                    df_analysis[smoothed_column],
+                    label=f"{label} smoothed",
+                    color=color,
+                    linewidth=2,
+                )
+            ax.set_ylabel("rad/s")
+            ax.legend(loc="upper left")
+            ax.grid(True, alpha=0.3)
+
+        axes[0].set_title("Raw and Smoothed Gyroscope Axes")
+        axes[-1].set_xlabel(time_column)
+        fig.tight_layout()
+        plt.show()
+        return fig, axes
+
     fig, ax = plt.subplots(figsize=(10, 4))
     if config.get("plot_raw_values", True):
         ax.plot(
@@ -646,7 +737,7 @@ def plot_primary_measurement(analysis_context):
 
 
 def compare_primary_signal_parameters(analysis_context, smoothing_windows):
-    if analysis_context["analysis_key"] != "suspension_acceleration":
+    if analysis_context["analysis_key"] not in {"suspension_acceleration", "suspension_angular_velocity"}:
         return compare_smoothing_windows(
             analysis_context["df_analysis"],
             analysis_context["time_column"],
@@ -656,12 +747,21 @@ def compare_primary_signal_parameters(analysis_context, smoothing_windows):
 
     config = analysis_context["config"]
     rows = []
-    for window in smoothing_windows:
-        for axis_name, column in [
+    axis_specs = (
+        [
             ("main_axis", config["main_axis_column"]),
             ("lateral_axis", config["lateral_axis_column"]),
             ("vertical_axis", config["vertical_axis_column"]),
-        ]:
+        ]
+        if analysis_context["analysis_key"] == "suspension_acceleration"
+        else [
+            ("roll_rate", config["roll_rate_column"]),
+            ("pitch_rate", config["pitch_rate_column"]),
+            ("yaw_rate", config["yaw_rate_column"]),
+        ]
+    )
+    for window in smoothing_windows:
+        for axis_name, column in axis_specs:
             smoothed = (
                 analysis_context["df_analysis"][column]
                 .rolling(window=window, center=True, min_periods=1)
@@ -731,6 +831,28 @@ def run_specialized_analysis(analysis_context, metadata):
             "parameter_comparison": parameter_comparison,
         }
 
+    if analysis_context["analysis_key"] == "suspension_angular_velocity":
+        suspension_orientation = calculate_suspension_orientation(analysis_context)
+        orientation_outliers, orientation_outlier_summary = detect_suspension_orientation_outliers(
+            suspension_orientation,
+            z_threshold=analysis_context["config"].get(
+                "orientation_outlier_z_threshold",
+                analysis_context["config"].get("outlier_z_threshold", 3.0),
+            ),
+        )
+        parameter_comparison = compare_suspension_orientation_parameters(
+            analysis_context,
+            analysis_context["config"].get("parameter_smoothing_windows", [5, 15, 25, 51]),
+        )
+        return {
+            "analysis_key": analysis_context["analysis_key"],
+            "summary": suspension_orientation["summary"],
+            "suspension_orientation": suspension_orientation,
+            "mode_outlier_table": orientation_outliers,
+            "mode_outlier_summary": orientation_outlier_summary,
+            "parameter_comparison": parameter_comparison,
+        }
+
     return {
         "analysis_key": analysis_context["analysis_key"],
         "summary": pd.DataFrame([{"metric": "specialized_analysis", "value": "not configured"}]),
@@ -750,6 +872,11 @@ def plot_specialized_analysis(specialized_analysis):
         plot_suspension_g_force_diagrams(specialized_analysis["suspension_motion"])
         return
 
+    if specialized_analysis["analysis_key"] == "suspension_angular_velocity":
+        plot_suspension_orientation_rate_diagram(specialized_analysis["suspension_orientation"])
+        plot_suspension_orientation_angle_diagrams(specialized_analysis["suspension_orientation"])
+        return
+
 
 def plot_mode_outliers(specialized_analysis):
     if specialized_analysis["analysis_key"] == "drivetrain_illuminance":
@@ -760,6 +887,10 @@ def plot_mode_outliers(specialized_analysis):
         plot_suspension_outlier_diagram(specialized_analysis["mode_outlier_table"])
         return
 
+    if specialized_analysis["analysis_key"] == "suspension_angular_velocity":
+        plot_suspension_orientation_outlier_diagram(specialized_analysis["mode_outlier_table"])
+        return
+
 
 def plot_mode_parameter_comparison(specialized_analysis):
     if specialized_analysis["analysis_key"] == "drivetrain_illuminance":
@@ -768,6 +899,10 @@ def plot_mode_parameter_comparison(specialized_analysis):
 
     if specialized_analysis["analysis_key"] == "suspension_acceleration":
         plot_suspension_parameter_comparison(specialized_analysis["parameter_comparison"])
+        return
+
+    if specialized_analysis["analysis_key"] == "suspension_angular_velocity":
+        plot_suspension_orientation_parameter_comparison(specialized_analysis["parameter_comparison"])
         return
 
 
@@ -996,6 +1131,60 @@ def calculate_suspension_motion(analysis_context):
     }
 
 
+def _cumulative_trapezoid(values, dt):
+    values = np.asarray(values, dtype=float)
+    dt = np.asarray(dt, dtype=float)
+    previous = np.r_[values[0], values[:-1]]
+    return np.cumsum((values + previous) * 0.5 * dt)
+
+
+def calculate_suspension_orientation(analysis_context):
+    config = analysis_context["config"]
+    df_analysis = analysis_context["df_analysis"].copy()
+    time_column = analysis_context["time_column"]
+    roll_rate_column = config["roll_rate_column"]
+    pitch_rate_column = config["pitch_rate_column"]
+    yaw_rate_column = config["yaw_rate_column"]
+
+    dt = df_analysis[time_column].diff().fillna(0)
+    roll_rate = df_analysis["roll_rate_smoothed"] if "roll_rate_smoothed" in df_analysis.columns else df_analysis[roll_rate_column]
+    pitch_rate = df_analysis["pitch_rate_smoothed"] if "pitch_rate_smoothed" in df_analysis.columns else df_analysis[pitch_rate_column]
+    yaw_rate = df_analysis["yaw_rate_smoothed"] if "yaw_rate_smoothed" in df_analysis.columns else df_analysis[yaw_rate_column]
+    absolute_rate = df_analysis["smoothed"] if "smoothed" in df_analysis.columns else df_analysis[analysis_context["value_column"]]
+
+    df_orientation = df_analysis.copy()
+    df_orientation["absolute_rate_rad_per_s"] = absolute_rate
+    df_orientation["roll_rate_rad_per_s"] = roll_rate
+    df_orientation["pitch_rate_rad_per_s"] = pitch_rate
+    df_orientation["yaw_rate_rad_per_s"] = yaw_rate
+    df_orientation["roll_angle_deg"] = np.rad2deg(_cumulative_trapezoid(roll_rate, dt))
+    df_orientation["pitch_angle_deg"] = np.rad2deg(_cumulative_trapezoid(pitch_rate, dt))
+    df_orientation["yaw_angle_deg"] = np.rad2deg(_cumulative_trapezoid(yaw_rate, dt))
+
+    summary = pd.DataFrame(
+        [
+            {"metric": "max_abs_roll_rate", "value": df_orientation["roll_rate_rad_per_s"].abs().max(), "unit": "rad/s"},
+            {"metric": "max_abs_pitch_rate", "value": df_orientation["pitch_rate_rad_per_s"].abs().max(), "unit": "rad/s"},
+            {"metric": "max_abs_yaw_rate", "value": df_orientation["yaw_rate_rad_per_s"].abs().max(), "unit": "rad/s"},
+            {"metric": "max_abs_roll_angle", "value": df_orientation["roll_angle_deg"].abs().max(), "unit": "deg"},
+            {"metric": "max_abs_pitch_angle", "value": df_orientation["pitch_angle_deg"].abs().max(), "unit": "deg"},
+            {"metric": "max_abs_yaw_angle", "value": df_orientation["yaw_angle_deg"].abs().max(), "unit": "deg"},
+            {"metric": "net_roll_angle", "value": df_orientation["roll_angle_deg"].iloc[-1], "unit": "deg"},
+            {"metric": "net_pitch_angle", "value": df_orientation["pitch_angle_deg"].iloc[-1], "unit": "deg"},
+            {"metric": "net_yaw_angle", "value": df_orientation["yaw_angle_deg"].iloc[-1], "unit": "deg"},
+            {"metric": "speed_estimate_available", "value": False, "unit": "boolean"},
+        ]
+    )
+
+    return {
+        "summary": summary,
+        "orientation": df_orientation,
+        "roll_rate_column": roll_rate_column,
+        "pitch_rate_column": pitch_rate_column,
+        "yaw_rate_column": yaw_rate_column,
+    }
+
+
 def plot_suspension_speed_diagram(suspension_motion):
     import matplotlib.pyplot as plt
 
@@ -1006,6 +1195,22 @@ def plot_suspension_speed_diagram(suspension_motion):
     ax.set_title("Estimated Vehicle Speed")
     ax.set_xlabel(time_column)
     ax.set_ylabel("Speed (m/s)")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.show()
+    return fig, ax
+
+
+def plot_suspension_orientation_rate_diagram(suspension_orientation):
+    import matplotlib.pyplot as plt
+
+    orientation = suspension_orientation["orientation"]
+    time_column = "Time (s)" if "Time (s)" in orientation.columns else orientation.columns[0]
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(orientation[time_column], orientation["absolute_rate_rad_per_s"], label="absolute angular speed", color="#172554")
+    ax.set_title("Absolute Angular Speed")
+    ax.set_xlabel(time_column)
+    ax.set_ylabel("Angular speed (rad/s)")
     ax.grid(True, alpha=0.3)
     ax.legend()
     plt.show()
@@ -1037,6 +1242,31 @@ def plot_suspension_g_force_diagrams(suspension_motion):
     return fig, axes
 
 
+def plot_suspension_orientation_angle_diagrams(suspension_orientation):
+    import matplotlib.pyplot as plt
+
+    orientation = suspension_orientation["orientation"]
+    time_column = "Time (s)" if "Time (s)" in orientation.columns else orientation.columns[0]
+    fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
+    axis_specs = [
+        ("roll_angle_deg", "roll angle", "#16a34a"),
+        ("pitch_angle_deg", "pitch angle", "#4f7cff"),
+        ("yaw_angle_deg", "yaw angle", "#172554"),
+    ]
+
+    for ax, (column, label, color) in zip(axes, axis_specs):
+        ax.plot(orientation[time_column], orientation[column], label=label, color=color)
+        ax.set_ylabel("deg")
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc="upper left")
+
+    axes[0].set_title("Integrated Orientation Angles")
+    axes[-1].set_xlabel(time_column)
+    fig.tight_layout()
+    plt.show()
+    return fig, axes
+
+
 def detect_suspension_motion_outliers(suspension_motion, z_threshold=3.0):
     motion = suspension_motion["motion"].copy()
     outlier_columns = ["speed_m_per_s", "main_axis_g", "lateral_g", "vertical_g"]
@@ -1060,6 +1290,31 @@ def detect_suspension_motion_outliers(suspension_motion, z_threshold=3.0):
         + [{"metric": "possible_motion_outliers", "value": int(motion["possible_motion_outlier"].sum())}]
     )
     return motion, summary
+
+
+def detect_suspension_orientation_outliers(suspension_orientation, z_threshold=3.0):
+    orientation = suspension_orientation["orientation"].copy()
+    outlier_columns = ["absolute_rate_rad_per_s", "roll_angle_deg", "pitch_angle_deg", "yaw_angle_deg"]
+    flags = []
+
+    for column in outlier_columns:
+        mean = orientation[column].mean()
+        std = orientation[column].std(ddof=0)
+        z_column = f"{column}_z_score"
+        flag_column = f"possible_{column}_outlier"
+        if std == 0 or pd.isna(std):
+            orientation[z_column] = 0.0
+        else:
+            orientation[z_column] = (orientation[column] - mean) / std
+        orientation[flag_column] = orientation[z_column].abs() > z_threshold
+        flags.append(flag_column)
+
+    orientation["possible_orientation_outlier"] = orientation[flags].any(axis=1)
+    summary = pd.DataFrame(
+        [{"metric": flag, "value": int(orientation[flag].sum())} for flag in flags]
+        + [{"metric": "possible_orientation_outliers", "value": int(orientation["possible_orientation_outlier"].sum())}]
+    )
+    return orientation, summary
 
 
 def plot_suspension_outlier_diagram(suspension_outliers):
@@ -1099,6 +1354,46 @@ def plot_suspension_outlier_diagram(suspension_outliers):
     return (fig, ax), (fig_g, axes_g)
 
 
+def plot_suspension_orientation_outlier_diagram(suspension_outliers):
+    import matplotlib.pyplot as plt
+
+    time_column = "Time (s)" if "Time (s)" in suspension_outliers.columns else suspension_outliers.columns[0]
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+
+    axes[0].plot(suspension_outliers[time_column], suspension_outliers["absolute_rate_rad_per_s"], label="absolute angular speed", color="#172554")
+    rate_outliers = suspension_outliers[suspension_outliers["possible_absolute_rate_rad_per_s_outlier"]]
+    axes[0].scatter(
+        rate_outliers[time_column],
+        rate_outliers["absolute_rate_rad_per_s"],
+        color="red",
+        label="possible rate outlier",
+        zorder=3,
+    )
+    axes[0].set_title("Possible Angular-Speed Outliers")
+    axes[0].set_ylabel("rad/s")
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    for column, label, color in [
+        ("roll_angle_deg", "roll angle", "#16a34a"),
+        ("pitch_angle_deg", "pitch angle", "#4f7cff"),
+        ("yaw_angle_deg", "yaw angle", "#172554"),
+    ]:
+        axes[1].plot(suspension_outliers[time_column], suspension_outliers[column], label=label, color=color)
+        flag_column = f"possible_{column}_outlier"
+        outliers = suspension_outliers[suspension_outliers[flag_column]]
+        axes[1].scatter(outliers[time_column], outliers[column], color=color, s=14, zorder=3)
+
+    axes[1].set_title("Possible Orientation-Angle Outliers")
+    axes[1].set_xlabel(time_column)
+    axes[1].set_ylabel("deg")
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+    fig.tight_layout()
+    plt.show()
+    return fig, axes
+
+
 def compare_suspension_parameters(analysis_context, smoothing_windows):
     rows = []
     config = analysis_context["config"]
@@ -1134,6 +1429,43 @@ def compare_suspension_parameters(analysis_context, smoothing_windows):
     return pd.DataFrame(rows)
 
 
+def compare_suspension_orientation_parameters(analysis_context, smoothing_windows):
+    rows = []
+    config = analysis_context["config"]
+    for window in smoothing_windows:
+        scenario = dict(analysis_context)
+        scenario_config = dict(config)
+        scenario_config["smoothing_window"] = window
+        scenario_df = analysis_context["df_analysis"].copy()
+        for axis_name, column in [
+            ("roll_rate", config["roll_rate_column"]),
+            ("pitch_rate", config["pitch_rate_column"]),
+            ("yaw_rate", config["yaw_rate_column"]),
+        ]:
+            scenario_df = add_smoothed_values(
+                scenario_df,
+                column,
+                window,
+                output_column=f"{axis_name}_smoothed",
+            )
+        scenario["config"] = scenario_config
+        scenario["df_analysis"] = scenario_df
+        orientation = calculate_suspension_orientation(scenario)["orientation"]
+        rows.append(
+            {
+                "smoothing_window_rows": window,
+                "max_abs_roll_rate_rad_per_s": orientation["roll_rate_rad_per_s"].abs().max(),
+                "max_abs_pitch_rate_rad_per_s": orientation["pitch_rate_rad_per_s"].abs().max(),
+                "max_abs_yaw_rate_rad_per_s": orientation["yaw_rate_rad_per_s"].abs().max(),
+                "max_abs_roll_angle_deg": orientation["roll_angle_deg"].abs().max(),
+                "max_abs_pitch_angle_deg": orientation["pitch_angle_deg"].abs().max(),
+                "max_abs_yaw_angle_deg": orientation["yaw_angle_deg"].abs().max(),
+                "net_yaw_angle_deg": orientation["yaw_angle_deg"].iloc[-1],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def plot_suspension_parameter_comparison(parameter_comparison):
     import matplotlib.pyplot as plt
 
@@ -1158,17 +1490,53 @@ def plot_suspension_parameter_comparison(parameter_comparison):
     return (fig, ax), (fig_speed, ax_speed)
 
 
+def plot_suspension_orientation_parameter_comparison(parameter_comparison):
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_roll_rate_rad_per_s"], marker="o", label="roll rate")
+    ax.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_pitch_rate_rad_per_s"], marker="o", label="pitch rate")
+    ax.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_yaw_rate_rad_per_s"], marker="o", label="yaw rate")
+    ax.set_title("Maximum Angular Rates by Smoothing Window")
+    ax.set_xlabel("Smoothing window (rows)")
+    ax.set_ylabel("Maximum absolute angular rate (rad/s)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.show()
+
+    fig_angle, ax_angle = plt.subplots(figsize=(8, 4))
+    ax_angle.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_roll_angle_deg"], marker="o", label="roll angle")
+    ax_angle.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_pitch_angle_deg"], marker="o", label="pitch angle")
+    ax_angle.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_yaw_angle_deg"], marker="o", label="yaw angle")
+    ax_angle.set_title("Maximum Orientation Angles by Smoothing Window")
+    ax_angle.set_xlabel("Smoothing window (rows)")
+    ax_angle.set_ylabel("Maximum absolute angle (deg)")
+    ax_angle.legend()
+    ax_angle.grid(True, alpha=0.3)
+    plt.show()
+    return (fig, ax), (fig_angle, ax_angle)
+
+
 def plot_primary_parameter_comparison(analysis_context, parameter_comparison):
     import matplotlib.pyplot as plt
 
-    if analysis_context["analysis_key"] != "suspension_acceleration":
+    if analysis_context["analysis_key"] not in {"suspension_acceleration", "suspension_angular_velocity"}:
         return None
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    for axis_name in ["main_axis", "lateral_axis", "vertical_axis"]:
+    axis_names = (
+        ["main_axis", "lateral_axis", "vertical_axis"]
+        if analysis_context["analysis_key"] == "suspension_acceleration"
+        else ["roll_rate", "pitch_rate", "yaw_rate"]
+    )
+    for axis_name in axis_names:
         rows = parameter_comparison[parameter_comparison["axis"] == axis_name]
         ax.plot(rows["smoothing_window_rows"], rows["smoothed_std"], marker="o", label=axis_name)
-    ax.set_title("Smoothed Acceleration Variation by Axis")
+    ax.set_title(
+        "Smoothed Acceleration Variation by Axis"
+        if analysis_context["analysis_key"] == "suspension_acceleration"
+        else "Smoothed Angular-Rate Variation by Axis"
+    )
     ax.set_xlabel("Smoothing window (rows)")
     ax.set_ylabel("Standard deviation after smoothing")
     ax.legend()
@@ -1230,7 +1598,7 @@ def summarize_analysis_results(
 ):
     extra_items = []
     extra_values = []
-    if specialized_analysis is not None and specialized_analysis.get("analysis_key") == "suspension_acceleration":
+    if specialized_analysis is not None and specialized_analysis.get("analysis_key") != "drivetrain_illuminance":
         summary = specialized_analysis["summary"]
         for _, row in summary.iterrows():
             extra_items.append(f"{row['metric']}_{row['unit']}".replace("/", "_per_").replace(" ", "_"))
@@ -1368,7 +1736,10 @@ def display_mode_outlier_report(specialized_analysis, analysis_config, fallback_
         "Mode-specific outlier threshold:",
         analysis_config.get(
             "motion_outlier_z_threshold",
-            analysis_config.get("motor_speed_outlier_z_threshold", fallback_z_threshold),
+            analysis_config.get(
+                "orientation_outlier_z_threshold",
+                analysis_config.get("motor_speed_outlier_z_threshold", fallback_z_threshold),
+            ),
         ),
     )
 
@@ -1382,6 +1753,8 @@ def display_mode_outlier_report(specialized_analysis, analysis_config, fallback_
             display(mode_outlier_table[mode_outlier_table["possible_motor_rpm_outlier"]].head(10))
         elif "possible_motion_outlier" in mode_outlier_table.columns:
             display(mode_outlier_table[mode_outlier_table["possible_motion_outlier"]].head(10))
+        elif "possible_orientation_outlier" in mode_outlier_table.columns:
+            display(mode_outlier_table[mode_outlier_table["possible_orientation_outlier"]].head(10))
         else:
             display(mode_outlier_table.head(10))
 
@@ -1408,7 +1781,14 @@ def plotly_measurement_inspector(analysis_context, max_points=5000):
     time_values = df_analysis[time_column].iloc[::step]
 
     columns = [(value_column, True)]
-    for key in ("main_axis_column", "lateral_axis_column", "vertical_axis_column"):
+    axis_keys = (
+        ("main_axis_column", "lateral_axis_column", "vertical_axis_column")
+        if analysis_context["analysis_key"] == "suspension_acceleration"
+        else ("roll_rate_column", "pitch_rate_column", "yaw_rate_column")
+        if analysis_context["analysis_key"] == "suspension_angular_velocity"
+        else ()
+    )
+    for key in axis_keys:
         column = config.get(key)
         if column and column in df_analysis.columns and column != value_column:
             columns.append((column, False))

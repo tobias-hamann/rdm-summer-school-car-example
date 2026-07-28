@@ -608,7 +608,12 @@ def _infer_unit_text(metadata, analysis_key):
     measurement_type = metadata.get("measurement_type")
     quantity = metadata.get("quantity")
     if measurement_type == "suspension":
-        return metadata.get("suspension", {}).get("acceleration_unit")
+        suspension_metadata = metadata.get("suspension", {})
+        if quantity == "acceleration":
+            return suspension_metadata.get("acceleration_unit")
+        if quantity == "angular_velocity":
+            return suspension_metadata.get("angular_velocity_unit")
+        return quantity
 
     value_column = metadata.get("analysis", {}).get(analysis_key, {}).get("value_column", "")
     unit_match = re.search(r"\(([^()]*)\)\s*$", value_column)

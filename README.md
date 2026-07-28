@@ -7,7 +7,7 @@
 
 <a href="https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_06_evaluate_measurements_jupyter.ipynb&system=deNBI-Cloud&flavor=m1" target="_blank" rel="noopener">Open Module 6 Lab in JupyterHub</a>
 
-Load drivetrain or suspension measurements, inspect their structure and data quality, and evaluate them with metadata-driven analysis parameters. The lab covers smoothing, outlier detection, visualizations, parameter comparisons, and the documentation of analytical decisions and limitations.
+Load drivetrain or suspension measurements, inspect their structure and data quality, and evaluate them with metadata-driven analysis parameters. The lab covers smoothing, outlier detection, visualizations, parameter comparisons, and the documentation of analytical decisions and limitations. Suspension datasets can now use either acceleration or gyroscope-derived angular-velocity measurements.
 
 ### Module 10 – Lab: Publish Your Data
 
@@ -40,7 +40,7 @@ The path is generated at export time; it is not stored in `metadata.json`. Filen
 YYYY-MM-DD_<measurement-type>_<quantity>_<run>_<stage>_<version>.ro-crate.zip
 ```
 
-The `measurement_type` is the use case (`drivetrain` or `suspension`); no separate `use_case` metadata field is needed.
+The `measurement_type` is the use case (`drivetrain` or `suspension`); no separate `use_case` metadata field is needed. For suspension, the supported quantities are `acceleration` and `angular_velocity`.
 
 The shared Lab 10/13 package contract is implemented by `export_measurement_ro_crate_zip()` in `src/ro_crate_loader.py`. It writes this layout:
 

@@ -18,6 +18,10 @@ from metadata_loader import (
 
 
 ALLOWED_MEASUREMENTS = {
+    "drivetrain": ["illuminance"],
+    "suspension": ["acceleration", "angular_velocity"],
+}
+DEFAULT_QUANTITIES = {
     "drivetrain": "illuminance",
     "suspension": "acceleration",
 }
@@ -63,7 +67,7 @@ def resolve_general_metadata_inputs(metadata_mode, existing_metadata, **general_
         if measurement_type not in ALLOWED_MEASUREMENTS:
             raise ValueError(f"measurement_type must be one of {sorted(ALLOWED_MEASUREMENTS)}")
         if inputs.get("quantity") is None:
-            inputs["quantity"] = ALLOWED_MEASUREMENTS[measurement_type]
+            inputs["quantity"] = DEFAULT_QUANTITIES[measurement_type]
 
     base_metadata = (
         default_public_metadata() if metadata_mode == "replace" else deepcopy(existing_metadata)
@@ -92,6 +96,11 @@ def apply_use_case_overrides(base_metadata, effective_general, analysis_override
     quantity = effective_general["quantity"]
     if measurement_type not in ALLOWED_MEASUREMENTS:
         raise ValueError(f"measurement_type must be one of {sorted(ALLOWED_MEASUREMENTS)}")
+    if quantity not in ALLOWED_MEASUREMENTS[measurement_type]:
+        raise ValueError(
+            f"quantity must be one of {ALLOWED_MEASUREMENTS[measurement_type]!r} "
+            f"for measurement_type {measurement_type!r}"
+        )
     analysis_key = f"{measurement_type}_{quantity}"
 
     central_defaults = default_public_metadata()
@@ -157,10 +166,10 @@ def validate_public_metadata(metadata, project_root=None):
     quantity = metadata.get("quantity")
     if measurement_type not in ALLOWED_MEASUREMENTS:
         error("measurement_type", f"must be one of {sorted(ALLOWED_MEASUREMENTS)}")
-    elif quantity != ALLOWED_MEASUREMENTS[measurement_type]:
+    elif quantity not in ALLOWED_MEASUREMENTS[measurement_type]:
         error(
             "quantity",
-            f"must be {ALLOWED_MEASUREMENTS[measurement_type]!r} for measurement_type {measurement_type!r}",
+            f"must be one of {ALLOWED_MEASUREMENTS[measurement_type]!r} for measurement_type {measurement_type!r}",
         )
 
     recorded_data_path = metadata.get("recorded_data_path")
@@ -210,6 +219,18 @@ def validate_public_metadata(metadata, project_root=None):
                 z_score=True,
             )
             _non_negative_number(config, "speed_initial_m_per_s", analysis_key, error)
+            _positive_integer_list(config, "parameter_smoothing_windows", analysis_key, error)
+        elif analysis_key == "suspension_angular_velocity":
+            _positive_integer(config, "smoothing_window", analysis_key, error)
+            _positive_number(config, "outlier_z_threshold", analysis_key, error, warning, z_score=True)
+            _positive_number(
+                config,
+                "orientation_outlier_z_threshold",
+                analysis_key,
+                error,
+                warning,
+                z_score=True,
+            )
             _positive_integer_list(config, "parameter_smoothing_windows", analysis_key, error)
 
     _validate_drivetrain_setup(metadata.get("drivetrain"), error)
@@ -420,6 +441,8 @@ def _validate_suspension_setup(config, error):
         return
     if config.get("acceleration_unit") in [None, ""]:
         error("suspension.acceleration_unit", "is required")
+    if config.get("angular_velocity_unit") in [None, ""]:
+        error("suspension.angular_velocity_unit", "is required")
 
 
 def _is_positive_integer(value):

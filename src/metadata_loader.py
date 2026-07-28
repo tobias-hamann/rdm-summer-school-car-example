@@ -93,15 +93,34 @@ def default_analysis_metadata():
             "plot_raw_values": True,
             "plot_smoothed_values": True,
         },
+        "suspension_angular_velocity": {
+            "time_column": None,
+            "value_column": "Absolute (rad/s)",
+            "roll_rate_column": "Gyroscope x (rad/s)",
+            "pitch_rate_column": "Gyroscope y (rad/s)",
+            "yaw_rate_column": "Gyroscope z (rad/s)",
+            "analysis_start_s": None,
+            "analysis_end_s": None,
+            "smoothing_window": 25,
+            "outlier_z_threshold": 3.0,
+            "orientation_outlier_z_threshold": 5.0,
+            "parameter_smoothing_windows": [5, 15, 25, 51],
+            "plot_raw_values": True,
+            "plot_smoothed_values": True,
+        },
     }
 
 
 def default_suspension_metadata():
     return {
         "acceleration_unit": "m/s^2",
+        "angular_velocity_unit": "rad/s",
         "speed_axis_description": "main vehicle acceleration direction",
         "lateral_axis_description": "sideways acceleration",
         "vertical_axis_description": "vertical acceleration",
+        "roll_axis_description": "rotation around the forward axis",
+        "pitch_axis_description": "rotation around the sideways axis",
+        "yaw_axis_description": "rotation around the vertical axis",
     }
 
 
@@ -235,6 +254,8 @@ def infer_quantity(recorded_data_path):
     path_text = str(recorded_data_path).replace("\\", "/").lower()
     if "beschleunigung" in path_text or "accel" in path_text:
         return "acceleration"
+    if "gyroscope" in path_text or "jiroskop" in path_text or "gyro" in path_text:
+        return "angular_velocity"
     if "raw data" in path_text and "drivetrain" in path_text:
         return "illuminance"
     return "measurement"

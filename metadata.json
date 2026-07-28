@@ -44,13 +44,37 @@
       ],
       "plot_raw_values": true,
       "plot_smoothed_values": true
+    },
+    "suspension_angular_velocity": {
+      "time_column": "Time (s)",
+      "value_column": "Absolute (rad/s)",
+      "roll_rate_column": "Gyroscope x (rad/s)",
+      "pitch_rate_column": "Gyroscope y (rad/s)",
+      "yaw_rate_column": "Gyroscope z (rad/s)",
+      "analysis_start_s": null,
+      "analysis_end_s": null,
+      "smoothing_window": 25,
+      "outlier_z_threshold": 3.0,
+      "orientation_outlier_z_threshold": 5.0,
+      "parameter_smoothing_windows": [
+        5,
+        15,
+        25,
+        51
+      ],
+      "plot_raw_values": true,
+      "plot_smoothed_values": true
     }
   },
   "suspension": {
     "acceleration_unit": "m/s^2",
+    "angular_velocity_unit": "rad/s",
     "speed_axis_description": "main vehicle acceleration direction",
     "lateral_axis_description": "sideways acceleration",
-    "vertical_axis_description": "vertical acceleration"
+    "vertical_axis_description": "vertical acceleration",
+    "roll_axis_description": "rotation around the forward axis",
+    "pitch_axis_description": "rotation around the sideways axis",
+    "yaw_axis_description": "rotation around the vertical axis"
   },
   "drivetrain": {
     "rotor_marker": {
