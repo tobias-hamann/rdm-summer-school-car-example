@@ -15,6 +15,12 @@ Load drivetrain or suspension measurements, inspect their structure and data qua
 
 Compare two recordings of the same drive, made by two phones on the same car. Because both phones are started by hand, their recordings do not begin at the same moment. The lab derives that time offset twice from independent sources - once by correlating the measured signals, once from the start timestamps the phones recorded themselves - and puts both next to each other as a cross-check. Students shift the recordings interactively and then choose the offset they work with. Both measurements are then evaluated as in Lab 1 and shown side by side in tables and overlaid in plots. Works with acceleration and gyroscope data. The two files are entered directly in the notebook rather than taken from `metadata.json`, and `data/suspension/Comparison Example/` holds artificially shifted test files with a known offset for practising.
 
+### Module 6 – Lab 3: Two Sensors in One Recording
+
+<a href="https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_06_3_compare_two_sensors_jupyter.ipynb&system=deNBI-Cloud&flavor=m1" target="_blank" rel="noopener">Open Module 6 Lab 3 in JupyterHub</a>
+
+Read a recording in which one phone captured several sensors at once - accelerometer and gyroscope during the same drive - and display them together. Sensor sheets are recognised by the units in their columns, so the app language does not matter. The lab contrasts the two reasons timestamps can differ: separate clocks, which Lab 2 has to align, and separate sampling within one shared clock, which needs no alignment. Both sensors are shown on a shared time axis, compared by when they are active rather than by their values, and checked against the recording itself - including whether the accelerometer signal still contains gravity, which decides whether an integrated speed means anything. `data/suspension/Multi-Sensor/AccGyro.xls` is the example recording.
+
 ### Module 10 – Lab: Publish Your Data
 
 <a href="https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_10_publish_data_jupyter.ipynb&system=deNBI-Cloud&flavor=m1" target="_blank" rel="noopener">Open Module 10 Lab in JupyterHub</a>

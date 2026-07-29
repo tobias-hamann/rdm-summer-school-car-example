@@ -352,17 +352,18 @@ def extract_excel_metadata(path):
     # Excel exports may contain recording metadata in additional sheets. The
     # workbook itself is therefore treated as the metadata source.
     path = Path(path)
-    excel = pd.ExcelFile(path)
+    with pd.ExcelFile(path) as excel:
+        sheet_names = excel.sheet_names
 
     # Keep sheet names and small previews. Full sheets can be loaded later with
     # pandas if a student needs to inspect details.
     result = {
         "source": "excel_workbook",
-        "sheets": excel.sheet_names,
+        "sheets": sheet_names,
         "sheet_previews": {},
     }
 
-    for sheet in excel.sheet_names:
+    for sheet in sheet_names:
         preview = pd.read_excel(path, sheet_name=sheet, nrows=20)
         result["sheet_previews"][sheet] = {
             "columns": preview.columns.tolist(),
@@ -371,6 +372,32 @@ def extract_excel_metadata(path):
         }
 
     return result
+
+
+def _warn_about_unread_sensor_sheets(recording_metadata):
+    """Point out sensor sheets that this single-sensor load leaves unread.
+
+    A phone can record several sensors into one export, and only the first
+    sheet is read here. Without this notice the analysis would look complete
+    while silently describing one of several sensors.
+    """
+    sheet_previews = recording_metadata.get("sheet_previews", {})
+    sensor_sheets = [
+        sheet
+        for sheet, preview in sheet_previews.items()
+        if isinstance(preview, dict) and detect_quantity_from_columns(preview.get("columns", []))
+    ]
+    if len(sensor_sheets) < 2:
+        return
+
+    read_sheet = recording_metadata.get("sheets", sensor_sheets)[0]
+    unread = [sheet for sheet in sensor_sheets if sheet != read_sheet]
+    warnings.warn(
+        f"This file contains {len(sensor_sheets)} sensor sheets ({', '.join(sensor_sheets)}), "
+        f"but only {read_sheet!r} was read; {', '.join(unread)} is ignored. "
+        "Module 6 Lab 3 reads all sensors of a recording together.",
+        stacklevel=3,
+    )
 
 
 def load_recorded_data(path, project_root=None):
@@ -404,6 +431,7 @@ def load_recorded_data(path, project_root=None):
         recording_metadata = extract_csv_meta_folder(path, project_root)
     elif path.suffix.lower() in [".xlsx", ".xls"]:
         recording_metadata = extract_excel_metadata(path)
+        _warn_about_unread_sensor_sheets(recording_metadata)
     else:
         recording_metadata = {"source": "unsupported"}
 
