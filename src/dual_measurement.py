@@ -36,6 +36,8 @@ def load_measurement_pair(
     project_root=None,
     label_a="measurement A",
     label_b="measurement B",
+    mounting_a=None,
+    mounting_b=None,
 ):
     """Load two recordings of the same quantity and prepare both for analysis.
 
@@ -71,8 +73,15 @@ def load_measurement_pair(
     pair_metadata["quantity"] = quantity_a
     pair_metadata["measurement_type"] = MEASUREMENT_TYPE_BY_QUANTITY[quantity_a]
 
-    context_a = prepare_measurement_analysis(loaded_a["table"], pair_metadata)
-    context_b = prepare_measurement_analysis(loaded_b["table"], pair_metadata)
+    # Two phones on the same car are rarely mounted the same way, so each
+    # measurement may name its own catalogue entry. Without an entry both fall
+    # back to the mounting documented in metadata.json.
+    context_a = prepare_measurement_analysis(
+        loaded_a["table"], _with_mounting(pair_metadata, mounting_a)
+    )
+    context_b = prepare_measurement_analysis(
+        loaded_b["table"], _with_mounting(pair_metadata, mounting_b)
+    )
 
     return {
         "analysis_key": context_a["analysis_key"],
@@ -527,20 +536,33 @@ def apply_time_offset(pair, time_offset_seconds):
     return shifted
 
 
+def _with_mounting(metadata, phone_mounting):
+    """Return the metadata with one measurement's own mounting entry."""
+    if not phone_mounting:
+        return metadata
+    metadata = deepcopy(metadata)
+    metadata.setdefault("suspension", {})["phone_mounting"] = phone_mounting
+    return metadata
+
+
 def _axis_specification(pair):
-    """Return the (column key, result column, label) triples of the active mode."""
-    config = pair["a"]["config"]
+    """Return the (working prefix, label, unit) triples of the active mode.
+
+    The prefixes address the vehicle-frame working columns, so two phones that
+    were mounted differently are still compared direction by direction rather
+    than sensor axis by sensor axis.
+    """
     if pair["analysis_key"] == "suspension_acceleration":
         return [
-            ("main_axis_column", "main_axis_smoothed", "main axis", "m/s^2"),
-            ("lateral_axis_column", "lateral_axis_smoothed", "lateral axis", "m/s^2"),
-            ("vertical_axis_column", "vertical_axis_smoothed", "vertical axis", "m/s^2"),
+            ("main_axis", "main axis", "m/s^2"),
+            ("lateral_axis", "lateral axis", "m/s^2"),
+            ("vertical_axis", "vertical axis", "m/s^2"),
         ]
     if pair["analysis_key"] == "suspension_angular_velocity":
         return [
-            ("roll_rate_column", "roll_rate_smoothed", "roll rate", "rad/s"),
-            ("pitch_rate_column", "pitch_rate_smoothed", "pitch rate", "rad/s"),
-            ("yaw_rate_column", "yaw_rate_smoothed", "yaw rate", "rad/s"),
+            ("roll_rate", "roll rate", "rad/s"),
+            ("pitch_rate", "pitch rate", "rad/s"),
+            ("yaw_rate", "yaw rate", "rad/s"),
         ]
     raise ValueError(
         f"Module 6 Lab 2 supports suspension acceleration and angular velocity, not {pair['analysis_key']!r}."
@@ -575,7 +597,7 @@ def plot_pair_axis_overlay(pair):
     axis_specification = _axis_specification(pair)
     fig, axes = plt.subplots(len(axis_specification), 1, figsize=(11, 8), sharex=True)
 
-    for ax, (config_key, smoothed_column, label, unit) in zip(axes, axis_specification):
+    for ax, (prefix, label, unit) in zip(axes, axis_specification):
         for key, measurement_label, color in [
             ("a", pair["label_a"], "#172554"),
             ("b", pair["label_b"], "#f97316"),
@@ -584,10 +606,10 @@ def plot_pair_axis_overlay(pair):
             time_values = context["df_analysis"][context["time_column"]]
             ax.plot(
                 time_values,
-                context["df_analysis"][smoothed_column],
+                context["df_analysis"][f"{prefix}_smoothed"],
                 color=color,
                 linewidth=1.6,
-                label=measurement_label,
+                label=f"{measurement_label} ({context['config'].get('phone_mounting', 'undocumented')})",
             )
         ax.set_ylabel(f"{label}\n({unit})")
         ax.legend(loc="upper left")

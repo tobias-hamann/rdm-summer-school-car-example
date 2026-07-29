@@ -11,6 +11,13 @@ import numpy as np
 import pandas as pd
 
 from figure_output import finish_figure
+from mounting import (
+    AXIS_ROLES_BY_ANALYSIS,
+    VEHICLE_FRAME,
+    axis_letter_and_sign,
+    mounting_is_documented,
+    resolve_phone_mounting,
+)
 
 
 def read_text_sample(path, max_bytes=65536):
@@ -572,6 +579,92 @@ def _find_magnitude_column(columns, unit_patterns, axis_columns, fallback_column
     return fallback_column
 
 
+AXIS_COLUMN_PATTERNS = {
+    "suspension_acceleration": ["linear acceleration {letter}", "acceleration {letter}", "{letter} (m/s"],
+    "suspension_angular_velocity": ["gyroscope {letter}", "rotation {letter}", "{letter} (rad/s"],
+}
+# Which axis the magnitude search falls back to when no absolute column exists.
+MAGNITUDE_FALLBACK_ROLE = {
+    "suspension_acceleration": "main",
+    "suspension_angular_velocity": "vertical",
+}
+
+
+def _apply_phone_mounting(config, analysis_key, metadata, columns):
+    """Fill the axis columns and their signs from the documented mounting.
+
+    The catalogue entry in ``metadata.json`` says which phone axis points
+    forward, left, and up. That is the only place this can come from - a
+    recording does not reveal how the phone was bolted on. For a documented
+    mounting the catalogue therefore decides which column takes which role,
+    and any column names stored in the analysis block are recalculated from it.
+
+    Without a documented mounting nothing is known, so the previous behaviour
+    is kept unchanged: stored column names win, and every sign stays positive.
+    """
+    mounting = resolve_phone_mounting(metadata)
+    roles = AXIS_ROLES_BY_ANALYSIS[analysis_key]
+    patterns = AXIS_COLUMN_PATTERNS[analysis_key]
+    documented = mounting_is_documented(mounting)
+
+    axis_columns = []
+    for role in ["main", "lateral", "vertical"]:
+        prefix = roles[role]
+        letter, sign = axis_letter_and_sign(mounting, role)
+        preferred = None if documented else config.get(f"{prefix}_column")
+        config[f"{prefix}_column"] = _existing_or_first_match(
+            preferred,
+            columns,
+            [pattern.format(letter=letter) for pattern in patterns],
+        )
+        config[f"{prefix}_sign"] = sign if documented else 1
+        axis_columns.append(config[f"{prefix}_column"])
+
+    config["phone_mounting"] = mounting["key"]
+    fallback_role = MAGNITUDE_FALLBACK_ROLE[analysis_key]
+    return axis_columns, config[f"{roles[fallback_role]}_column"]
+
+
+def axis_working_columns(config, analysis_key):
+    """Return (config prefix, sensor column, sign) for every axis of the mode."""
+    roles = AXIS_ROLES_BY_ANALYSIS.get(analysis_key, {})
+    return [
+        (roles[role], config[f"{roles[role]}_column"], int(config.get(f"{roles[role]}_sign", 1)))
+        for role in ["main", "lateral", "vertical"]
+        if role in roles
+    ]
+
+
+def add_axis_working_columns(df_analysis, config, analysis_key, smoothing_window=None):
+    """Add the vehicle-frame axis columns the analyses work on.
+
+    ``<prefix>_value`` holds the sensor column turned into the vehicle frame,
+    ``<prefix>_smoothed`` its smoothed version. The sensor columns keep their
+    recorded values under their own names, so nothing is silently rewritten:
+    a column called "Linear Acceleration x" always contains what the phone
+    measured along its x axis, whichever way the phone was pointing.
+    """
+    if smoothing_window is None:
+        smoothing_window = config.get("smoothing_window", 25)
+    for prefix, column, sign in axis_working_columns(config, analysis_key):
+        df_analysis = df_analysis.copy()
+        df_analysis[f"{prefix}_value"] = sign * df_analysis[column]
+        df_analysis = add_smoothed_values(
+            df_analysis,
+            f"{prefix}_value",
+            smoothing_window,
+            output_column=f"{prefix}_smoothed",
+        )
+    return df_analysis
+
+
+def axis_display_label(config, prefix, base_label):
+    """Label an axis with the sensor column it comes from and any sign flip."""
+    column = config.get(f"{prefix}_column", prefix)
+    sign = int(config.get(f"{prefix}_sign", 1))
+    return f"{base_label} (= {'-' if sign < 0 else ''}{column})"
+
+
 def get_analysis_config(metadata, df_raw=None):
     analysis_key = get_analysis_key(metadata)
     all_configs = metadata.get("analysis", {})
@@ -595,59 +688,19 @@ def get_analysis_config(metadata, df_raw=None):
         if config.get("time_column") not in columns:
             config["time_column"] = _find_time_column(columns, numeric_like, df_raw)
 
-        if analysis_key == "suspension_acceleration":
-            config["main_axis_column"] = _existing_or_first_match(
-                config.get("main_axis_column"),
-                columns,
-                ["linear acceleration x", "acceleration x", "x (m/s"],
+        if analysis_key in AXIS_ROLES_BY_ANALYSIS:
+            axis_columns, fallback_column = _apply_phone_mounting(
+                config, analysis_key, metadata, columns
             )
-            config["lateral_axis_column"] = _existing_or_first_match(
-                config.get("lateral_axis_column"),
-                columns,
-                ["linear acceleration y", "acceleration y", "y (m/s"],
-            )
-            config["vertical_axis_column"] = _existing_or_first_match(
-                config.get("vertical_axis_column"),
-                columns,
-                ["linear acceleration z", "acceleration z", "z (m/s"],
+            quantity = (
+                "acceleration" if analysis_key == "suspension_acceleration" else "angular_velocity"
             )
             if config.get("value_column") not in columns:
                 config["value_column"] = _find_magnitude_column(
                     columns,
-                    QUANTITY_UNIT_PATTERNS["acceleration"],
-                    [
-                        config["main_axis_column"],
-                        config["lateral_axis_column"],
-                        config["vertical_axis_column"],
-                    ],
-                    config["main_axis_column"],
-                )
-        elif analysis_key == "suspension_angular_velocity":
-            config["roll_rate_column"] = _existing_or_first_match(
-                config.get("roll_rate_column"),
-                columns,
-                ["gyroscope x", "rotation x", "x (rad/s"],
-            )
-            config["pitch_rate_column"] = _existing_or_first_match(
-                config.get("pitch_rate_column"),
-                columns,
-                ["gyroscope y", "rotation y", "y (rad/s"],
-            )
-            config["yaw_rate_column"] = _existing_or_first_match(
-                config.get("yaw_rate_column"),
-                columns,
-                ["gyroscope z", "rotation z", "z (rad/s"],
-            )
-            if config.get("value_column") not in columns:
-                config["value_column"] = _find_magnitude_column(
-                    columns,
-                    QUANTITY_UNIT_PATTERNS["angular_velocity"],
-                    [
-                        config["roll_rate_column"],
-                        config["pitch_rate_column"],
-                        config["yaw_rate_column"],
-                    ],
-                    config["yaw_rate_column"],
+                    QUANTITY_UNIT_PATTERNS[quantity],
+                    axis_columns,
+                    fallback_column,
                 )
         elif config.get("value_column") not in columns:
             value_candidates = [column for column in numeric_like if column != config["time_column"]]
@@ -671,23 +724,9 @@ def prepare_measurement_analysis(df_raw, metadata):
             df[column] = converted
 
     numeric_columns = df.select_dtypes(include="number").columns.tolist()
+    axis_specs = axis_working_columns(config, analysis_key)
     required_columns = [config["time_column"], config["value_column"]]
-    if analysis_key == "suspension_acceleration":
-        required_columns.extend(
-            [
-                config["main_axis_column"],
-                config["lateral_axis_column"],
-                config["vertical_axis_column"],
-            ]
-        )
-    elif analysis_key == "suspension_angular_velocity":
-        required_columns.extend(
-            [
-                config["roll_rate_column"],
-                config["pitch_rate_column"],
-                config["yaw_rate_column"],
-            ]
-        )
+    required_columns.extend(column for _, column, _ in axis_specs)
     required_columns = list(dict.fromkeys(required_columns))
 
     missing_columns = [column for column in required_columns if column not in df.columns]
@@ -709,30 +748,7 @@ def prepare_measurement_analysis(df_raw, metadata):
         output_column="smoothed",
     )
 
-    if analysis_key == "suspension_acceleration":
-        for axis_name, column in [
-            ("main_axis", config["main_axis_column"]),
-            ("lateral_axis", config["lateral_axis_column"]),
-            ("vertical_axis", config["vertical_axis_column"]),
-        ]:
-            df_analysis = add_smoothed_values(
-                df_analysis,
-                column,
-                config.get("smoothing_window", 25),
-                output_column=f"{axis_name}_smoothed",
-            )
-    elif analysis_key == "suspension_angular_velocity":
-        for axis_name, column in [
-            ("roll_rate", config["roll_rate_column"]),
-            ("pitch_rate", config["pitch_rate_column"]),
-            ("yaw_rate", config["yaw_rate_column"]),
-        ]:
-            df_analysis = add_smoothed_values(
-                df_analysis,
-                column,
-                config.get("smoothing_window", 25),
-                output_column=f"{axis_name}_smoothed",
-            )
+    df_analysis = add_axis_working_columns(df_analysis, config, analysis_key)
 
     return {
         "analysis_key": analysis_key,
@@ -808,9 +824,30 @@ def get_analysis_story(analysis_context):
 
 def display_analysis_story(analysis_context):
     story = get_analysis_story(analysis_context)
+    rows = [{"item": "mode", "description": story["mode"]}]
+    if analysis_context["analysis_key"] in AXIS_ROLES_BY_ANALYSIS:
+        config = analysis_context["config"]
+        mounting_key = config.get("phone_mounting", "undocumented")
+        axis_summary = ", ".join(
+            f"{prefix} = {'-' if sign < 0 else '+'}{column}"
+            for prefix, column, sign in axis_working_columns(config, analysis_context["analysis_key"])
+        )
+        rows.append(
+            {
+                "item": "phone_mounting",
+                "description": (
+                    f"{mounting_key}; vehicle frame {VEHICLE_FRAME}; {axis_summary}"
+                    if mounting_key != "undocumented"
+                    else (
+                        "undocumented - the sensor axes are used unchanged, so driving direction "
+                        "and left/right turns may be mirrored. Document it in metadata.json."
+                    )
+                ),
+            }
+        )
     return pd.DataFrame(
-        [
-            {"item": "mode", "description": story["mode"]},
+        rows
+        + [
             {"item": "section_6", "description": story["section_6"]},
             {"item": "primary_signal", "description": story["primary_signal"]},
             {"item": "specialized_analysis", "description": story["specialized"]},
@@ -965,19 +1002,29 @@ def plot_primary_measurement(analysis_context):
     config = analysis_context["config"]
     time_column = analysis_context["time_column"]
 
-    if analysis_context["analysis_key"] == "suspension_acceleration":
-        fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
-        axis_specs = [
-            (config["main_axis_column"], "main_axis_smoothed", "main axis", "#16a34a"),
-            (config["lateral_axis_column"], "lateral_axis_smoothed", "lateral axis", "#4f7cff"),
-            (config["vertical_axis_column"], "vertical_axis_smoothed", "vertical axis", "#172554"),
-        ]
+    analysis_key = analysis_context["analysis_key"]
+    if analysis_key in AXIS_ROLES_BY_ANALYSIS:
+        unit = "m/s^2" if analysis_key == "suspension_acceleration" else "rad/s"
+        title = (
+            "Acceleration Axes in the Vehicle Frame"
+            if analysis_key == "suspension_acceleration"
+            else "Gyroscope Axes in the Vehicle Frame"
+        )
+        base_labels = (
+            ["main axis", "lateral axis", "vertical axis"]
+            if analysis_key == "suspension_acceleration"
+            else ["roll rate", "pitch rate", "yaw rate"]
+        )
+        colors = ["#16a34a", "#4f7cff", "#172554"]
 
-        for ax, (column, smoothed_column, label, color) in zip(axes, axis_specs):
+        fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
+        specs = zip(axes, axis_working_columns(config, analysis_key), base_labels, colors)
+        for ax, (prefix, _column, _sign), base_label, color in specs:
+            label = axis_display_label(config, prefix, base_label)
             if config.get("plot_raw_values", True):
                 ax.plot(
                     df_analysis[time_column],
-                    df_analysis[column],
+                    df_analysis[f"{prefix}_value"],
                     label=label,
                     color=color,
                     alpha=0.35,
@@ -985,51 +1032,16 @@ def plot_primary_measurement(analysis_context):
             if config.get("plot_smoothed_values", True):
                 ax.plot(
                     df_analysis[time_column],
-                    df_analysis[smoothed_column],
-                    label=f"{label} smoothed",
+                    df_analysis[f"{prefix}_smoothed"],
+                    label=f"{base_label} smoothed",
                     color=color,
                     linewidth=2,
                 )
-            ax.set_ylabel("m/s^2")
+            ax.set_ylabel(unit)
             ax.legend(loc="upper left")
             ax.grid(True, alpha=0.3)
 
-        axes[0].set_title("Raw and Smoothed Acceleration Axes")
-        axes[-1].set_xlabel(time_column)
-        fig.tight_layout()
-        finish_figure(fig, "primary_measurement")
-        return fig, axes
-
-    if analysis_context["analysis_key"] == "suspension_angular_velocity":
-        fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
-        axis_specs = [
-            (config["roll_rate_column"], "roll_rate_smoothed", "roll rate", "#16a34a"),
-            (config["pitch_rate_column"], "pitch_rate_smoothed", "pitch rate", "#4f7cff"),
-            (config["yaw_rate_column"], "yaw_rate_smoothed", "yaw rate", "#172554"),
-        ]
-
-        for ax, (column, smoothed_column, label, color) in zip(axes, axis_specs):
-            if config.get("plot_raw_values", True):
-                ax.plot(
-                    df_analysis[time_column],
-                    df_analysis[column],
-                    label=label,
-                    color=color,
-                    alpha=0.35,
-                )
-            if config.get("plot_smoothed_values", True):
-                ax.plot(
-                    df_analysis[time_column],
-                    df_analysis[smoothed_column],
-                    label=f"{label} smoothed",
-                    color=color,
-                    linewidth=2,
-                )
-            ax.set_ylabel("rad/s")
-            ax.legend(loc="upper left")
-            ax.grid(True, alpha=0.3)
-
-        axes[0].set_title("Raw and Smoothed Gyroscope Axes")
+        axes[0].set_title(f"{title} (mounting: {config.get('phone_mounting', 'undocumented')})")
         axes[-1].set_xlabel(time_column)
         fig.tight_layout()
         finish_figure(fig, "primary_measurement")
@@ -1423,9 +1435,11 @@ def calculate_suspension_motion(analysis_context):
     vertical_axis = config["vertical_axis_column"]
 
     dt = df_analysis[time_column].diff().fillna(0)
-    main_acceleration = df_analysis["main_axis_smoothed"] if "main_axis_smoothed" in df_analysis.columns else df_analysis[main_axis]
-    lateral_acceleration = df_analysis["lateral_axis_smoothed"] if "lateral_axis_smoothed" in df_analysis.columns else df_analysis[lateral_axis]
-    vertical_acceleration = df_analysis["vertical_axis_smoothed"] if "vertical_axis_smoothed" in df_analysis.columns else df_analysis[vertical_axis]
+    # All three come from the vehicle-frame working columns, so the documented
+    # mounting has already been applied and "main" really means forward.
+    main_acceleration = _axis_series(df_analysis, "main_axis")
+    lateral_acceleration = _axis_series(df_analysis, "lateral_axis")
+    vertical_acceleration = _axis_series(df_analysis, "vertical_axis")
     previous_acceleration = main_acceleration.shift(fill_value=main_acceleration.iloc[0])
     speed_increment = ((main_acceleration + previous_acceleration) / 2) * dt
     df_motion = df_analysis.copy()
@@ -1461,6 +1475,17 @@ def _cumulative_trapezoid(values, dt):
     return np.cumsum((values + previous) * 0.5 * dt)
 
 
+def _axis_series(df_analysis, prefix):
+    """Return the smoothed vehicle-frame axis, or the unsmoothed one."""
+    for column in (f"{prefix}_smoothed", f"{prefix}_value"):
+        if column in df_analysis.columns:
+            return df_analysis[column]
+    raise KeyError(
+        f"Working column {prefix}_value is missing. Build the analysis context with "
+        "prepare_measurement_analysis() so the phone mounting is applied."
+    )
+
+
 def calculate_suspension_orientation(analysis_context):
     config = analysis_context["config"]
     df_analysis = analysis_context["df_analysis"].copy()
@@ -1470,9 +1495,9 @@ def calculate_suspension_orientation(analysis_context):
     yaw_rate_column = config["yaw_rate_column"]
 
     dt = df_analysis[time_column].diff().fillna(0)
-    roll_rate = df_analysis["roll_rate_smoothed"] if "roll_rate_smoothed" in df_analysis.columns else df_analysis[roll_rate_column]
-    pitch_rate = df_analysis["pitch_rate_smoothed"] if "pitch_rate_smoothed" in df_analysis.columns else df_analysis[pitch_rate_column]
-    yaw_rate = df_analysis["yaw_rate_smoothed"] if "yaw_rate_smoothed" in df_analysis.columns else df_analysis[yaw_rate_column]
+    roll_rate = _axis_series(df_analysis, "roll_rate")
+    pitch_rate = _axis_series(df_analysis, "pitch_rate")
+    yaw_rate = _axis_series(df_analysis, "yaw_rate")
     absolute_rate = df_analysis["smoothed"] if "smoothed" in df_analysis.columns else df_analysis[analysis_context["value_column"]]
 
     df_orientation = df_analysis.copy()
@@ -1724,18 +1749,9 @@ def compare_suspension_parameters(analysis_context, smoothing_windows):
         scenario = dict(analysis_context)
         scenario_config = dict(config)
         scenario_config["smoothing_window"] = window
-        scenario_df = analysis_context["df_analysis"].copy()
-        for axis_name, column in [
-            ("main_axis", config["main_axis_column"]),
-            ("lateral_axis", config["lateral_axis_column"]),
-            ("vertical_axis", config["vertical_axis_column"]),
-        ]:
-            scenario_df = add_smoothed_values(
-                scenario_df,
-                column,
-                window,
-                output_column=f"{axis_name}_smoothed",
-            )
+        scenario_df = add_axis_working_columns(
+            analysis_context["df_analysis"], config, "suspension_acceleration", window
+        )
         scenario["config"] = scenario_config
         scenario["df_analysis"] = scenario_df
         motion = calculate_suspension_motion(scenario)["motion"]
@@ -1759,18 +1775,9 @@ def compare_suspension_orientation_parameters(analysis_context, smoothing_window
         scenario = dict(analysis_context)
         scenario_config = dict(config)
         scenario_config["smoothing_window"] = window
-        scenario_df = analysis_context["df_analysis"].copy()
-        for axis_name, column in [
-            ("roll_rate", config["roll_rate_column"]),
-            ("pitch_rate", config["pitch_rate_column"]),
-            ("yaw_rate", config["yaw_rate_column"]),
-        ]:
-            scenario_df = add_smoothed_values(
-                scenario_df,
-                column,
-                window,
-                output_column=f"{axis_name}_smoothed",
-            )
+        scenario_df = add_axis_working_columns(
+            analysis_context["df_analysis"], config, "suspension_angular_velocity", window
+        )
         scenario["config"] = scenario_config
         scenario["df_analysis"] = scenario_df
         orientation = calculate_suspension_orientation(scenario)["orientation"]
@@ -2103,21 +2110,16 @@ def plotly_measurement_inspector(analysis_context, max_points=5000):
     step = max(1, len(df_analysis) // max_points)
     time_values = df_analysis[time_column].iloc[::step]
 
-    columns = [(value_column, True)]
-    axis_keys = (
-        ("main_axis_column", "lateral_axis_column", "vertical_axis_column")
-        if analysis_context["analysis_key"] == "suspension_acceleration"
-        else ("roll_rate_column", "pitch_rate_column", "yaw_rate_column")
-        if analysis_context["analysis_key"] == "suspension_angular_velocity"
-        else ()
-    )
-    for key in axis_keys:
-        column = config.get(key)
-        if column and column in df_analysis.columns and column != value_column:
-            columns.append((column, False))
+    # The axis traces show the vehicle-frame working columns, labelled with the
+    # sensor column they were derived from, so a sign flip stays visible.
+    columns = [(value_column, value_column, True)]
+    for prefix, _column, _sign in axis_working_columns(config, analysis_context["analysis_key"]):
+        working_column = f"{prefix}_value"
+        if working_column in df_analysis.columns:
+            columns.append((working_column, axis_display_label(config, prefix, prefix), False))
 
     fig = go.Figure()
-    for column, visible in columns:
+    for column, label, visible in columns:
         smoothed = (
             df_analysis[column]
             .rolling(window=smoothing_window, center=True, min_periods=1)
@@ -2126,12 +2128,12 @@ def plotly_measurement_inspector(analysis_context, max_points=5000):
         )
         fig.add_trace(go.Scatter(
             x=time_values, y=df_analysis[column].iloc[::step], mode="lines",
-            name=f"{column} (raw)", opacity=0.4,
+            name=f"{label} (raw)", opacity=0.4,
             visible=True if visible else "legendonly",
         ))
         fig.add_trace(go.Scatter(
             x=time_values, y=smoothed, mode="lines",
-            name=f"{column} (smoothed, window={smoothing_window})",
+            name=f"{label} (smoothed, window={smoothing_window})",
             visible=True if visible else "legendonly",
         ))
 

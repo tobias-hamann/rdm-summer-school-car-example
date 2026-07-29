@@ -43,6 +43,22 @@ phyphox exports a CSV measurement as a ZIP containing `Raw Data.csv` and a `meta
 
 <a href="create_metadata_jupyter.ipynb" target="_blank" rel="noopener"><code>create_metadata_jupyter.ipynb</code></a> prepares the metadata for the original measurement. It validates numerical ranges, displays an exact before/after comparison, and writes `metadata.json` only after an explicit button confirmation. Only the selected `measurement_type` is presented for editing; settings for the other use case remain unchanged or come from central defaults.
 
+### How the Phone Was Mounted
+
+A phone bolted to the car in a different orientation measures the same drive with swapped axes and flipped signs. Which sensor axis pointed forward cannot be recovered from the recording: the longitudinal acceleration changes sign both when the phone is turned around and when the car reverses - one measurement, two explanations. This is the standard example in these labs of a property that has to be **documented rather than computed**.
+
+It is documented with a single key in the `suspension` block of `metadata.json`:
+
+```json
+"phone_mounting": "flat_screen_up_top_forward"
+```
+
+`src/mounting.py` holds the catalogue of valid values and prints it as a table in `create_metadata_jupyter.ipynb`. It is defined against the **ISO 8855** vehicle frame (x forward, y left, z up), with the phone axes as phyphox reports them (x right edge, y top edge, z out of the screen). From the chosen entry the labs derive which sensor column takes which role and with which sign; the sensor columns keep their recorded values, and the vehicle-frame values live in separate working columns.
+
+Direction-dependent results depend on this: the estimated driving direction, the route in Lab 13, and whether a turn counts as left or right. Direction-free results - the absolute magnitude, the G-forces, the Lab 2 time offset - do not.
+
+The default is `undocumented`, which is also what recordings from before this field get. They still analyse, using the sensor axes unchanged, but metadata validation warns and Lab 13 states that the direction of its results rests on an assumption. Reverse driving is a separate matter and is not detected: the labs assume forward driving throughout, which is recorded in the Module 13 limitations.
+
 Module 13 does not overwrite the original `metadata.json`. For every reused analysis it creates `outputs/<lab13-dataset>/metadata_reused.json`. This record contains the source RO-Crate and checksum, original preprocessing parameters, separate Module 13 parameters, result summary, parameter comparison, interpretation fields, and generated artefacts. Unrelated measurement modes are excluded.
 
 ## Technical remarks

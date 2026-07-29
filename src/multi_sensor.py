@@ -19,6 +19,8 @@ import pandas as pd
 
 from data_format_loader import (
     QUANTITY_UNIT_PATTERNS,
+    axis_display_label,
+    axis_working_columns,
     column_has_unit,
     create_time_quality_report,
     detect_quantity_from_columns,
@@ -326,22 +328,20 @@ def plot_multi_sensor_axes(bundle):
         config = context["config"]
         frame = context["df_analysis"]
         time_values = frame[context["time_column"]]
-        smoothed_columns = (
-            ["main_axis_smoothed", "lateral_axis_smoothed", "vertical_axis_smoothed"]
+        base_labels = (
+            ["main axis", "lateral axis", "vertical axis"]
             if context["analysis_key"] == "suspension_acceleration"
-            else ["roll_rate_smoothed", "pitch_rate_smoothed", "yaw_rate_smoothed"]
+            else ["roll rate", "pitch rate", "yaw rate"]
         )
-        raw_columns = (
-            [config["main_axis_column"], config["lateral_axis_column"], config["vertical_axis_column"]]
-            if context["analysis_key"] == "suspension_acceleration"
-            else [config["roll_rate_column"], config["pitch_rate_column"], config["yaw_rate_column"]]
-        )
+        axis_specs = axis_working_columns(config, context["analysis_key"])
 
-        for row_index, (raw_column, smoothed_column, color) in enumerate(zip(raw_columns, smoothed_columns, colors)):
+        for row_index, ((prefix, _column, _sign), base_label, color) in enumerate(
+            zip(axis_specs, base_labels, colors)
+        ):
             ax = axes[row_index][column_index]
-            ax.plot(time_values, frame[raw_column], color=color, alpha=0.25)
-            ax.plot(time_values, frame[smoothed_column], color=color, linewidth=1.6)
-            ax.set_ylabel(raw_column, fontsize=8)
+            ax.plot(time_values, frame[f"{prefix}_value"], color=color, alpha=0.25)
+            ax.plot(time_values, frame[f"{prefix}_smoothed"], color=color, linewidth=1.6)
+            ax.set_ylabel(axis_display_label(config, prefix, base_label), fontsize=8)
             ax.grid(True, alpha=0.3)
             if row_index == 0:
                 ax.set_title(sensor["label"])

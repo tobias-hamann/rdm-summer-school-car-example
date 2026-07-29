@@ -5,6 +5,8 @@ They deliberately keep assumptions and limitations visible because both new
 questions go beyond the original purpose of the measurements.
 """
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -45,8 +47,9 @@ def get_module13_story(analysis_context):
             "mode": "Suspension - estimated 2D route",
             "question": "How far did the vehicle travel, and where did it end relative to its start?",
             "assumptions": (
-                "The configured main axis points forward, the lateral axis points sideways, the vehicle "
-                "starts with the configured speed and heading, and lateral acceleration is caused mainly by turns."
+                "The documented phone mounting is correct, so the main axis points forward and the lateral "
+                "axis to the left, the vehicle drives forward throughout, starts with the configured speed "
+                "and heading, and lateral acceleration is caused mainly by turns."
             ),
             "analytical_choice": (
                 "Forward acceleration is integrated to speed. Lateral acceleration and speed estimate "
@@ -54,7 +57,10 @@ def get_module13_story(analysis_context):
             ),
             "limitations": (
                 "Acceleration bias and axis misalignment accumulate during integration. Without GPS, wheel "
-                "odometry, or a gyroscope, distance, heading, and end position remain exploratory estimates."
+                "odometry, or a gyroscope, distance, heading, and end position remain exploratory estimates. "
+                "The route direction and the left/right sense of every turn follow from the documented "
+                "phone mounting, which the recording itself cannot confirm; reverse driving is not detected "
+                "and would appear as standing still."
             ),
         }
 
@@ -63,8 +69,9 @@ def get_module13_story(analysis_context):
             "mode": "Suspension - cornering behaviour",
             "question": "How often did the vehicle turn, in which direction, and how sharply?",
             "assumptions": (
-                "The configured yaw axis stays roughly vertical, so its rate describes turning rather "
-                "than roll or pitch, and yaw rates below the configured deadband are treated as driving straight."
+                "The documented phone mounting is correct, so the yaw axis stays roughly vertical and its "
+                "rate describes turning rather than roll or pitch, and yaw rates below the configured "
+                "deadband are treated as driving straight."
             ),
             "analytical_choice": (
                 "The measured yaw rate is integrated to a relative heading. Samples above the "
@@ -74,7 +81,8 @@ def get_module13_story(analysis_context):
             "limitations": (
                 "A gyroscope measures rotation only. Without speed the turn radius and the driven path "
                 "cannot be reconstructed, and uncorrected sensor bias makes the integrated heading drift "
-                "over time, so headings are relative and exploratory."
+                "over time, so headings are relative and exploratory. Which turns count as left and which "
+                "as right follows from the documented phone mounting, not from the measurement."
             ),
         }
 
@@ -534,12 +542,25 @@ def _cumulative_trapezoid(values, dt):
     return np.cumsum((values + previous) * 0.5 * dt)
 
 
+def _warn_if_mounting_undocumented(config, affected):
+    """Point out that a direction-dependent result rests on an undocumented mounting."""
+    if config.get("phone_mounting", "undocumented") != "undocumented":
+        return
+    warnings.warn(
+        f"The phone mounting is not documented, so {affected} may be mirrored. "
+        "Which sensor axis pointed forward cannot be recovered from the recording; "
+        "set suspension.phone_mounting in metadata.json when it is known.",
+        stacklevel=3,
+    )
+
+
 def calculate_suspension_route(analysis_context, config_override=None):
     """Estimate distance, heading, and a local 2D path from acceleration data."""
     if analysis_context["analysis_key"] != "suspension_acceleration":
         raise ValueError("Route estimation requires suspension acceleration data.")
 
     config = dict(analysis_context["config"])
+    _warn_if_mounting_undocumented(config, "the driving direction and the shape of the route")
     config.update(config_override or {})
     scenario = dict(analysis_context)
     scenario["config"] = config
@@ -615,6 +636,7 @@ def calculate_suspension_turns(analysis_context, config_override=None):
         raise ValueError("Turn detection requires suspension angular velocity data.")
 
     config = dict(analysis_context["config"])
+    _warn_if_mounting_undocumented(config, "which turns count as left and which as right")
     config.update(config_override or {})
     scenario = dict(analysis_context)
     scenario["config"] = config

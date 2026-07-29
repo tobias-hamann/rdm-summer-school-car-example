@@ -69,6 +69,7 @@
   "suspension": {
     "acceleration_unit": "m/s^2",
     "angular_velocity_unit": "rad/s",
+    "phone_mounting": "flat_screen_up_top_left",
     "speed_axis_description": "main vehicle acceleration direction",
     "lateral_axis_description": "sideways acceleration",
     "vertical_axis_description": "vertical acceleration",

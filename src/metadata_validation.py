@@ -15,6 +15,7 @@ from metadata_loader import (
     public_metadata_path,
     save_public_metadata,
 )
+from mounting import DEFAULT_PHONE_MOUNTING, PHONE_MOUNTINGS
 
 
 ALLOWED_MEASUREMENTS = {
@@ -234,7 +235,7 @@ def validate_public_metadata(metadata, project_root=None):
             _positive_integer_list(config, "parameter_smoothing_windows", analysis_key, error)
 
     _validate_drivetrain_setup(metadata.get("drivetrain"), error)
-    _validate_suspension_setup(metadata.get("suspension"), error)
+    _validate_suspension_setup(metadata.get("suspension"), error, warning)
     return {"valid": not errors, "errors": errors, "warnings": warnings}
 
 
@@ -435,7 +436,7 @@ def _validate_gear(gear, prefix, error):
             error(f"{prefix}.{key}", "must be a positive integer")
 
 
-def _validate_suspension_setup(config, error):
+def _validate_suspension_setup(config, error, warning):
     if not isinstance(config, dict):
         error("suspension", "must be an object")
         return
@@ -443,6 +444,22 @@ def _validate_suspension_setup(config, error):
         error("suspension.acceleration_unit", "is required")
     if config.get("angular_velocity_unit") in [None, ""]:
         error("suspension.angular_velocity_unit", "is required")
+
+    mounting = config.get("phone_mounting", DEFAULT_PHONE_MOUNTING)
+    if mounting not in PHONE_MOUNTINGS:
+        error(
+            "suspension.phone_mounting",
+            f"must be one of {sorted(PHONE_MOUNTINGS)}",
+        )
+    elif not PHONE_MOUNTINGS[mounting]["documented"]:
+        # Not an error: an undescribed recording stays analysable. But the
+        # driving direction and the left/right sense of every turn then rest on
+        # an assumption, which the student should make consciously.
+        warning(
+            "suspension.phone_mounting",
+            "is 'undocumented', so the sensor axes are used unchanged; "
+            "driving direction and left/right turns may be mirrored",
+        )
 
 
 def _is_positive_integer(value):

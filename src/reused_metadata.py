@@ -250,6 +250,9 @@ def write_lab13_artifacts(
             "version": metadata["version"],
             "data_reference": recorded_data_metadata["recorded_data_path"],
             "detected_format": recorded_data_metadata["detected_format"],
+            # Every direction-dependent result below only means what it says if
+            # this is right, and it cannot be checked against the recording.
+            "phone_mounting": analysis_context["config"].get("phone_mounting", "undocumented"),
         },
         source_preprocessing_parameters=source_preprocessing_parameters,
         lab13_parameters=reuse_analysis_metadata,

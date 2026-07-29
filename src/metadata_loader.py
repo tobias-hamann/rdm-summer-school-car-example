@@ -3,6 +3,7 @@ import argparse
 import json
 
 from data_format_loader import detect_quantity_from_columns, read_column_names
+from mounting import DEFAULT_PHONE_MOUNTING
 
 
 DEFAULT_RECORDED_DATA_PATH = "data/drivetrain/Example/Raw Data.csv"
@@ -124,6 +125,11 @@ def default_suspension_metadata():
     return {
         "acceleration_unit": "m/s^2",
         "angular_velocity_unit": "rad/s",
+        # How the phone was mounted on the car. Defaults to 'undocumented'
+        # because that is the honest value for a recording nobody described:
+        # which sensor axis pointed forward cannot be recovered afterwards.
+        # See src/mounting.py for the catalogue of valid values.
+        "phone_mounting": DEFAULT_PHONE_MOUNTING,
         "speed_axis_description": "main vehicle acceleration direction",
         "lateral_axis_description": "sideways acceleration",
         "vertical_axis_description": "vertical acceleration",
