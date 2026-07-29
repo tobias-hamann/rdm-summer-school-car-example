@@ -6,3 +6,7 @@ xlrd
 ipywidgets
 ipykernel
 plotly
+nbformat
+nbclient
+nbconvert
+plotid

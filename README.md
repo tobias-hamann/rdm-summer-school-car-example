@@ -25,7 +25,7 @@ Read a recording in which one phone captured several sensors at once - accelerom
 
 <a href="https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_10_publish_data_jupyter.ipynb&system=deNBI-Cloud&flavor=m1" target="_blank" rel="noopener">Open Module 10 Lab in JupyterHub</a>
 
-Turn the analysed measurement into a publication-quality data package. The lab walks through the publication record (creator, ORCID, keywords, version), a deliberate licence choice, and a pre-publish checklist, then exports the dataset as an RO-Crate ZIP - the same package Lab 13 imports. It closes with data availability statement and data citation templates.
+Turn the analysed measurement into a publication-quality package. The lab walks through the publication record (creator, ORCID, keywords, version), a deliberate licence choice, a reserved Zenodo DOI, and a pre-publish checklist. The export then **re-runs the chosen analysis notebook** and packages that run: the executed notebook, a self-contained HTML rendering of it, every figure as its own PNG tagged with a [PlotID](https://plotid.pages.rwth-aachen.de/plotid_python/readme_link.html), and the result files the run wrote - all alongside the measurement and its metadata in one RO-Crate ZIP. Re-running is what keeps notebook, figures, and tables from drifting apart, and a `CreateAction` in the crate records which inputs produced which results through which notebook. The measurement stays the crate's main entity, so Lab 13 imports it exactly as before. It closes with data availability statement and data citation templates.
 
 ### Module 13 – Lab: Generate New Insights from Reused Data
 
@@ -60,16 +60,23 @@ YYYY-MM-DD_<measurement-type>_<quantity>_<run>_<stage>_<version>.ro-crate.zip
 
 The `measurement_type` is the use case (`drivetrain` or `suspension`); no separate `use_case` metadata field is needed. For suspension, the supported quantities are `acceleration` and `angular_velocity`.
 
-The shared Lab 10/13 package contract is implemented by `export_measurement_ro_crate_zip()` in `src/ro_crate_loader.py`. It writes this layout:
+The shared Lab 10/13 package contract is implemented by `export_measurement_ro_crate_zip()` in `src/ro_crate_loader.py`, which `export_analysis_snapshot()` in `src/analysis_snapshot.py` extends with the analysis run. It writes this layout:
 
 ```text
 output/ro-crates/<generated-name>.ro-crate.zip
 ├── ro-crate-metadata.json
 ├── metadata/
 │   └── metadata.json              # filtered metadata for this dataset
-└── data/
-    ├── <primary measurement file>
-    └── meta/                       # optional recording sidecars
+├── data/
+│   ├── <primary measurement file>
+│   └── meta/                       # optional recording sidecars
+└── analysis/
+    ├── <analysis notebook>.ipynb   # as executed, with outputs
+    ├── <analysis notebook>.html    # self-contained report, plotly.js embedded
+    ├── figures/                    # one PNG per figure, each with its PlotID
+    └── outputs/                    # the result files this run wrote
 ```
+
+Only the files the run actually wrote go into `analysis/outputs/`, not the whole `outputs/` folder, so results of earlier runs on other datasets cannot slip in. Every analysis notebook declares what it used through `declare_lab_inputs()`; the export reads that declaration and refuses to build a package without it, rather than producing a crate that cannot say where it came from.
 
 The exporter reads the current top-level selection in `metadata.json`. The embedded `metadata/metadata.json` contains only common metadata, the selected `analysis` entry, and the matching measurement-mode section. For example, a drivetrain export excludes all suspension settings.

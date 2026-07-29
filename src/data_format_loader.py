@@ -10,6 +10,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
+from figure_output import finish_figure
+
 
 def read_text_sample(path, max_bytes=65536):
     # Read only the beginning of a text-like file because delimiter and decimal
@@ -995,7 +997,7 @@ def plot_primary_measurement(analysis_context):
         axes[0].set_title("Raw and Smoothed Acceleration Axes")
         axes[-1].set_xlabel(time_column)
         fig.tight_layout()
-        plt.show()
+        finish_figure(fig, "primary_measurement")
         return fig, axes
 
     if analysis_context["analysis_key"] == "suspension_angular_velocity":
@@ -1030,7 +1032,7 @@ def plot_primary_measurement(analysis_context):
         axes[0].set_title("Raw and Smoothed Gyroscope Axes")
         axes[-1].set_xlabel(time_column)
         fig.tight_layout()
-        plt.show()
+        finish_figure(fig, "primary_measurement")
         return fig, axes
 
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -1053,7 +1055,7 @@ def plot_primary_measurement(analysis_context):
     ax.set_xlabel(time_column)
     ax.legend()
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "primary_measurement")
     return fig, ax
 
 
@@ -1332,7 +1334,7 @@ def plot_motor_speed_parameter_comparison(motor_speed_parameter_comparison):
     ax.set_xlabel("Smoothing window")
     ax.set_ylabel("Motor speed (rpm)")
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "motor_speed_parameter_comparison")
     return fig, ax
 
 
@@ -1345,7 +1347,7 @@ def plot_motor_speed_diagram(drivetrain_rotation):
         fig, ax = plt.subplots(figsize=(8, 4))
         ax.set_title("Calculated Rotational Speed")
         ax.text(0.5, 0.5, "No full rotations detected", ha="center", va="center", transform=ax.transAxes)
-        plt.show()
+        finish_figure(fig, "motor_speed_diagram")
         return fig, ax
 
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -1377,7 +1379,7 @@ def plot_motor_speed_diagram(drivetrain_rotation):
         ha="center",
         va="top",
     )
-    plt.show()
+    finish_figure(fig, "motor_speed_diagram")
     return fig, ax
 
 
@@ -1408,7 +1410,7 @@ def plot_motor_speed_outlier_diagram(motor_speed_rotations):
     ax.set_ylabel("Motor speed (rpm)")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "motor_speed_outlier_diagram")
     return fig, ax
 
 
@@ -1518,7 +1520,7 @@ def plot_suspension_speed_diagram(suspension_motion):
     ax.set_ylabel("Speed (m/s)")
     ax.grid(True, alpha=0.3)
     ax.legend()
-    plt.show()
+    finish_figure(fig, "suspension_speed_diagram")
     return fig, ax
 
 
@@ -1534,7 +1536,7 @@ def plot_suspension_orientation_rate_diagram(suspension_orientation):
     ax.set_ylabel("Angular speed (rad/s)")
     ax.grid(True, alpha=0.3)
     ax.legend()
-    plt.show()
+    finish_figure(fig, "suspension_orientation_rate_diagram")
     return fig, ax
 
 
@@ -1559,7 +1561,7 @@ def plot_suspension_g_force_diagrams(suspension_motion):
     axes[0].set_title("Acceleration Axes as G-Forces")
     axes[-1].set_xlabel(time_column)
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "suspension_g_force_diagrams")
     return fig, axes
 
 
@@ -1584,7 +1586,7 @@ def plot_suspension_orientation_angle_diagrams(suspension_orientation):
     axes[0].set_title("Integrated Orientation Angles")
     axes[-1].set_xlabel(time_column)
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "suspension_orientation_angle_diagrams")
     return fig, axes
 
 
@@ -1651,7 +1653,7 @@ def plot_suspension_outlier_diagram(suspension_outliers):
     ax.set_ylabel("Speed (m/s)")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "suspension_outlier_speed")
 
     fig_g, axes_g = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
     axis_specs = [
@@ -1671,7 +1673,7 @@ def plot_suspension_outlier_diagram(suspension_outliers):
     axes_g[0].set_title("Possible G-Force Outliers by Axis")
     axes_g[-1].set_xlabel(time_column)
     fig_g.tight_layout()
-    plt.show()
+    finish_figure(fig_g, "suspension_outlier_g_forces")
     return (fig, ax), (fig_g, axes_g)
 
 
@@ -1711,7 +1713,7 @@ def plot_suspension_orientation_outlier_diagram(suspension_outliers):
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "suspension_orientation_outlier_diagram")
     return fig, axes
 
 
@@ -1799,7 +1801,7 @@ def plot_suspension_parameter_comparison(parameter_comparison):
     ax.set_ylabel("Maximum absolute acceleration (g)")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "suspension_parameter_comparison_g_forces")
 
     fig_speed, ax_speed = plt.subplots(figsize=(8, 4))
     ax_speed.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_speed_m_per_s"], marker="o")
@@ -1807,7 +1809,7 @@ def plot_suspension_parameter_comparison(parameter_comparison):
     ax_speed.set_xlabel("Smoothing window (rows)")
     ax_speed.set_ylabel("Maximum speed (m/s)")
     ax_speed.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig_speed, "suspension_parameter_comparison_speed")
     return (fig, ax), (fig_speed, ax_speed)
 
 
@@ -1823,7 +1825,7 @@ def plot_suspension_orientation_parameter_comparison(parameter_comparison):
     ax.set_ylabel("Maximum absolute angular rate (rad/s)")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "suspension_orientation_parameter_comparison_rates")
 
     fig_angle, ax_angle = plt.subplots(figsize=(8, 4))
     ax_angle.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_abs_roll_angle_deg"], marker="o", label="roll angle")
@@ -1834,7 +1836,7 @@ def plot_suspension_orientation_parameter_comparison(parameter_comparison):
     ax_angle.set_ylabel("Maximum absolute angle (deg)")
     ax_angle.legend()
     ax_angle.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig_angle, "suspension_orientation_parameter_comparison_angles")
     return (fig, ax), (fig_angle, ax_angle)
 
 
@@ -1862,7 +1864,7 @@ def plot_primary_parameter_comparison(analysis_context, parameter_comparison):
     ax.set_ylabel("Standard deviation after smoothing")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "primary_parameter_comparison")
     return fig, ax
 
 

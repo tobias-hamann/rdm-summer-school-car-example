@@ -74,6 +74,8 @@ def export_measurement_ro_crate_zip(
     license_id=None,
     license_name=None,
     keywords=None,
+    doi=None,
+    additional_files=None,
 ):
     """Export the dataset currently selected by the top level of metadata.json."""
     required = [
@@ -97,7 +99,9 @@ def export_measurement_ro_crate_zip(
     export_date = _normalize_export_date(export_date)
     main_archive_path = f"data/{main_data_path.name}"
 
-    additional_files = []
+    # Files supplied by the caller - the analysis snapshot - are kept and the
+    # recording sidecars are added to them.
+    additional_files = [dict(item) for item in (additional_files or [])]
     metadata_sidecar_directory = main_data_path.parent / "meta"
     if metadata_sidecar_directory.is_dir():
         for file_path in sorted(path for path in metadata_sidecar_directory.iterdir() if path.is_file()):
@@ -120,6 +124,9 @@ def export_measurement_ro_crate_zip(
                 f"Metadata for {analysis_key}; settings for other measurement modes are excluded."
             ),
             "encoding_format": "application/json",
+            # The analysis parameters live here, so this file is an input of the
+            # run just as much as the measurement itself.
+            "role": "input",
         }
     )
 
@@ -151,6 +158,7 @@ def export_measurement_ro_crate_zip(
         license_id=license_id,
         license_name=license_name,
         keywords=keywords,
+        doi=doi,
     )
 
 
@@ -174,6 +182,7 @@ def _write_measurement_ro_crate_zip(
     license_id=None,
     license_name=None,
     keywords=None,
+    doi=None,
 ):
     """Create the canonical Lab 10/13 measurement RO-Crate ZIP package.
 
@@ -222,6 +231,12 @@ def _write_measurement_ro_crate_zip(
                     _guess_encoding_format(file_path or item.get("archive_path", "")),
                 ),
                 "is_main": False,
+                # Snapshot parts describe themselves: a notebook is source code,
+                # a figure is an image, and the role says whether the file went
+                # into the analysis or came out of it.
+                "entity_type": item.get("entity_type", "File"),
+                "identifier": item.get("identifier"),
+                "role": item.get("role"),
             }
         )
 
@@ -248,6 +263,7 @@ def _write_measurement_ro_crate_zip(
         license_id=license_id,
         license_name=license_name,
         keywords=keywords,
+        doi=doi,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -479,6 +495,7 @@ def _build_measurement_ro_crate_document(
     license_id=None,
     license_name=None,
     keywords=None,
+    doi=None,
 ):
     main_payload = next(item for item in payloads if item["is_main"])
     property_specs = [
@@ -506,6 +523,11 @@ def _build_measurement_ro_crate_document(
         root_entity["author"] = {"@id": author_entity_id}
     if license_id:
         root_entity["license"] = {"@id": license_id}
+    if doi:
+        # Reserved on Zenodo before the export, so the crate carries the
+        # identifier it will be published under rather than none at all.
+        root_entity["identifier"] = doi
+        root_entity["creditText"] = f"{name}, {date_published}. {doi}"
 
     graph = [
         {
@@ -519,7 +541,7 @@ def _build_measurement_ro_crate_document(
     for item in payloads:
         entity = {
             "@id": item["entity_id"],
-            "@type": "File",
+            "@type": item.get("entity_type") or "File",
             "name": item["name"],
             "description": item["description"],
             "encodingFormat": item["encoding_format"],
@@ -527,7 +549,37 @@ def _build_measurement_ro_crate_document(
         }
         if item["is_main"]:
             entity["variableMeasured"] = {"@id": "#quantity"}
+        if item.get("identifier"):
+            # The PlotID stamped into the figure. It is what lets someone who
+            # only holds a printed plot find the crate it came from.
+            entity["identifier"] = item["identifier"]
         graph.append(entity)
+
+    # A CreateAction turns a pile of files into a described analysis: these
+    # inputs, run through this notebook, produced these results.
+    instrument = next((item for item in payloads if item.get("role") == "instrument"), None)
+    results = [item for item in payloads if item.get("role") == "result"]
+    if instrument is not None:
+        graph.append(
+            {
+                "@id": "#analysis-run",
+                "@type": "CreateAction",
+                "name": f"Analysis run of {instrument['name']}",
+                "description": (
+                    "The analysis notebook was executed once for this snapshot; "
+                    "the results below come from that single run."
+                ),
+                "startTime": date_published,
+                "instrument": {"@id": instrument["entity_id"]},
+                "object": [
+                    {"@id": item["entity_id"]}
+                    for item in payloads
+                    if item["is_main"] or item.get("role") == "input"
+                ],
+                "result": [{"@id": item["entity_id"]} for item in results],
+            }
+        )
+        root_entity.setdefault("mentions", []).append({"@id": "#analysis-run"})
 
     if author_name:
         author_entity = {"@id": author_entity_id, "@type": "Person", "name": author_name}

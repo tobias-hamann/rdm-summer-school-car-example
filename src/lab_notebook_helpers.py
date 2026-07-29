@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from .figure_output import finish_figure
 from .data_format_loader import load_recorded_data, summarize_loaded_data
 from .metadata_loader import (
     apply_recorded_data_path_override,
@@ -234,7 +235,7 @@ def plot_first_measurement_overview(df_raw, metadata=None, time_column=None):
     ax.set_ylabel("value")
     ax.grid(True, alpha=0.3)
     ax.legend()
-    plt.show()
+    finish_figure(fig, "first_measurement_overview")
     return fig
 
 

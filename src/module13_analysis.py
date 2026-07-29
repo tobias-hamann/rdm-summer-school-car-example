@@ -8,6 +8,7 @@ questions go beyond the original purpose of the measurements.
 import numpy as np
 import pandas as pd
 
+from figure_output import finish_figure
 from data_format_loader import (
     calculate_drivetrain_rotation,
     calculate_suspension_motion,
@@ -503,7 +504,7 @@ def plot_bright_phase_working_conditions(bright_phase_result):
     axes[1].legend()
     axes[1].grid(True, axis="y", alpha=0.25)
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "bright_phase_working_conditions")
     return fig, axes
 
 
@@ -522,7 +523,7 @@ def plot_bright_phase_threshold_comparison(threshold_comparison):
     ax.set_ylabel("Bright phases above minimum (%)")
     ax.set_ylim(-5, 105)
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "bright_phase_threshold_comparison")
     return fig, ax
 
 
@@ -764,7 +765,7 @@ def plot_suspension_turns(turn_result):
     axes[1].grid(True, alpha=0.3)
 
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "suspension_turns")
     return fig, axes
 
 
@@ -795,7 +796,7 @@ def plot_turn_deadband_comparison(parameter_comparison):
     axes[1].grid(True, alpha=0.3)
 
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "turn_deadband_comparison")
     return fig, axes
 
 
@@ -869,7 +870,7 @@ def plot_suspension_route(route_result):
     heading_axis.set_ylabel("Heading in local frame (deg)", color="#172554")
     heading_axis.tick_params(axis="y", labelcolor="#172554")
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "suspension_route")
     return fig, axes
 
 
@@ -888,5 +889,5 @@ def plot_route_deadband_comparison(route_results):
     ax.axis("equal")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "route_deadband_comparison")
     return fig, ax

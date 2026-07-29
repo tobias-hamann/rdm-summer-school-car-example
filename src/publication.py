@@ -149,7 +149,9 @@ def build_publication_record(metadata, author_name, author_orcid, keywords, sele
     return publication_record
 
 
-def run_pre_publish_checks(metadata, selected_data_path, project_root, author_name, selected_license):
+def run_pre_publish_checks(
+    metadata, selected_data_path, project_root, author_name, selected_license, reserved_doi=None
+):
     """Display the pre-publish checklist; blocking failures raise an error."""
     import pandas as pd
     from IPython.display import display
@@ -189,6 +191,19 @@ def run_pre_publish_checks(metadata, selected_data_path, project_root, author_na
             "passed": format_assessment["is_open"],
             "detail": format_assessment["detail"],
         },
+        {
+            # Blocking, because the export refuses without it. Checking here
+            # means a missing DOI is reported now instead of after the analysis
+            # notebook has been re-run.
+            "check": "Reserved DOI",
+            "blocking": True,
+            "passed": bool(reserved_doi),
+            "detail": (
+                reserved_doi
+                if reserved_doi
+                else "reserve a DOI on Zenodo and enter it as reserved_doi in Section 3"
+            ),
+        },
     ]
     checklist = pd.DataFrame(checks)
     display(checklist)
@@ -223,22 +238,37 @@ def inspect_ro_crate_deposit(ro_crate_path, project_root):
             print("-", entry)
 
 
-def print_publication_templates(publication_record, selected_license, author_name, metadata, ro_crate_path):
-    """Print the data availability statement and data citation templates."""
-    doi_placeholder = "https://doi.org/10.5281/zenodo.XXXXXXX"
+def print_publication_templates(
+    publication_record, selected_license, author_name, metadata, ro_crate_path, reserved_doi=None
+):
+    """Print the data availability statement and data citation templates.
+
+    The reserved DOI is used when there is one, so the texts are ready to paste
+    instead of carrying a placeholder that someone has to remember to replace.
+    """
+    if reserved_doi:
+        doi_reference = reserved_doi if reserved_doi.startswith("http") else f"https://doi.org/{reserved_doi}"
+    else:
+        doi_reference = "https://doi.org/10.5281/zenodo.XXXXXXX"
     export_year = ro_crate_path.name[:4]
     creator = author_name or "<author>"
 
     print("Data availability statement:")
     print(
         f'  "The data supporting this study are openly available under '
-        f'{selected_license["name"]} at {doi_placeholder}."'
+        f'{selected_license["name"]} at {doi_reference}."'
     )
     print()
     print("Data citation:")
     print(
         f"  {creator} ({export_year}). {publication_record['title']}, "
-        f"{metadata['version']}. {doi_placeholder}"
+        f"{metadata['version']}. {doi_reference}"
     )
     print()
-    print("Replace the placeholder with the DOI assigned by the repository when you deposit.")
+    if reserved_doi:
+        print(
+            "These texts already contain your reserved DOI. It only starts resolving "
+            "once you publish the Zenodo record - until then it is reserved, not active."
+        )
+    else:
+        print("Replace the placeholder with the DOI assigned by the repository when you deposit.")

@@ -26,6 +26,7 @@ from data_format_loader import (
     run_specialized_analysis,
     _relative_or_absolute,
 )
+from figure_output import finish_figure
 from metadata_loader import MEASUREMENT_TYPE_BY_QUANTITY
 
 STANDARD_GRAVITY = 9.80665
@@ -305,7 +306,7 @@ def plot_multi_sensor_overview(bundle):
     axes[0].set_title("All Sensors of One Recording on a Shared Time Axis")
     axes[-1].set_xlabel("Time (s)")
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "multi_sensor_overview")
     return fig, axes
 
 
@@ -348,7 +349,7 @@ def plot_multi_sensor_axes(bundle):
                 ax.set_xlabel("Time (s)")
 
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "multi_sensor_axes")
     return fig, axes
 
 
@@ -437,7 +438,7 @@ def plot_sensor_activity_relation(bundle, grid_step_s=None):
     axes[1].grid(True, alpha=0.3)
 
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "sensor_activity_relation")
     return fig, axes
 
 

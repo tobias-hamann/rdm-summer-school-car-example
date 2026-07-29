@@ -23,6 +23,7 @@ from data_format_loader import (
     prepare_measurement_analysis,
     run_specialized_analysis,
 )
+from figure_output import finish_figure
 from metadata_loader import MEASUREMENT_TYPE_BY_QUANTITY
 
 SUPPORTED_QUANTITIES = {"acceleration", "angular_velocity"}
@@ -283,7 +284,7 @@ def plot_time_offset_search(offset_result, timestamp_result=None):
     ax.set_ylabel("Normalised correlation")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "time_offset_search")
     return fig, ax
 
 
@@ -505,7 +506,7 @@ def plot_clock_synchronisation(pair, offset_result, timestamp_result=None):
 
     axes[-1].set_xlabel("Time (s)")
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "clock_synchronisation")
     return fig, axes
 
 
@@ -563,7 +564,7 @@ def plot_pair_overlay(pair, show_raw=True):
     ax.set_ylabel(pair["a"]["value_column"])
     ax.legend()
     ax.grid(True, alpha=0.3)
-    plt.show()
+    finish_figure(fig, "pair_overlay")
     return fig, ax
 
 
@@ -595,7 +596,7 @@ def plot_pair_axis_overlay(pair):
     axes[0].set_title(f"Axis Comparison, Offset = {pair['time_offset_seconds']:.3f} s")
     axes[-1].set_xlabel("Time (s)")
     fig.tight_layout()
-    plt.show()
+    finish_figure(fig, "pair_axis_overlay")
     return fig, axes
 
 
