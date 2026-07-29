@@ -1,4 +1,4 @@
-"""Compare two recordings of the same drive (Lab 6B).
+"""Compare two recordings of the same drive (Module 6, Lab 2).
 
 Two phones on the same car are started by hand, so each recording begins and
 ends at a different moment even though the drive is identical. These helpers
@@ -39,7 +39,7 @@ def load_measurement_pair(
     """Load two recordings of the same quantity and prepare both for analysis.
 
     The quantity is taken from the files themselves rather than from
-    metadata.json, because Lab 6B is pointed at two explicit paths that may
+    metadata.json, because Module 6 Lab 2 is pointed at two explicit paths that may
     differ from the dataset the metadata currently describes.
     """
     loaded_a = load_recorded_data(path_a, project_root)
@@ -50,7 +50,7 @@ def load_measurement_pair(
     if quantity_a is None or quantity_b is None:
         raise ValueError(
             "The quantity of at least one file could not be recognised from its column units. "
-            "Lab 6B expects two phyphox exports of the same sensor."
+            "Module 6 Lab 2 expects two phyphox exports of the same sensor."
         )
     if quantity_a != quantity_b:
         raise ValueError(
@@ -60,7 +60,7 @@ def load_measurement_pair(
 
     if quantity_a not in SUPPORTED_QUANTITIES:
         raise ValueError(
-            f"Lab 6B compares suspension measurements ({', '.join(sorted(SUPPORTED_QUANTITIES))}), "
+            f"Module 6 Lab 2 compares suspension measurements ({', '.join(sorted(SUPPORTED_QUANTITIES))}), "
             f"but these files contain {quantity_a}."
         )
 
@@ -83,6 +83,10 @@ def load_measurement_pair(
         "label_b": label_b,
         "path_a": loaded_a["path"],
         "path_b": loaded_b["path"],
+        # Kept so the recorded start timestamps stay available as an
+        # independent second opinion on the offset.
+        "recording_metadata_a": loaded_a["recording_metadata"],
+        "recording_metadata_b": loaded_b["recording_metadata"],
         "time_offset_seconds": 0.0,
     }
 
@@ -246,8 +250,13 @@ def display_time_offset_estimate(offset_result, pair=None, weak_correlation_belo
     return pd.DataFrame(rows)
 
 
-def plot_time_offset_search(offset_result):
-    """Show the correlation over all tested offsets so the optimum is visible."""
+def plot_time_offset_search(offset_result, timestamp_result=None):
+    """Show the correlation over all tested offsets so the optimum is visible.
+
+    If the clock-based offset is passed in as well, it is drawn into the same
+    curve, which makes it immediately visible whether the phone clocks point at
+    the same place as the measured signals.
+    """
     import matplotlib.pyplot as plt
 
     lags = offset_result["lags_s"]
@@ -258,8 +267,16 @@ def plot_time_offset_search(offset_result):
         offset_result["offset_seconds"],
         color="#dc2626",
         linestyle="--",
-        label=f"calculated optimum {offset_result['offset_seconds']:.3f} s",
+        label=f"signal correlation {offset_result['offset_seconds']:.3f} s",
     )
+    if timestamp_result is not None and timestamp_result.get("available"):
+        ax.axvline(
+            timestamp_result["offset_seconds"],
+            color="#16a34a",
+            linestyle=":",
+            linewidth=2,
+            label=f"recorded start times {timestamp_result['offset_seconds']:.3f} s",
+        )
     ax.axvline(0.0, color="#64748b", linewidth=0.8, label="no shift")
     ax.set_title("Agreement Between Both Measurements by Time Offset")
     ax.set_xlabel("Time offset applied to measurement B (s)")
@@ -268,6 +285,228 @@ def plot_time_offset_search(offset_result):
     ax.grid(True, alpha=0.3)
     plt.show()
     return fig, ax
+
+
+def _extract_start_timestamp(recording_metadata):
+    """Read the absolute START time phyphox stores alongside the samples.
+
+    Excel exports keep it in the "Metadata Time" sheet, CSV exports in the
+    meta/ sidecar folder. Both are already collected by load_recorded_data,
+    so no file has to be opened a second time.
+    """
+    rows = []
+    if recording_metadata.get("source") == "excel_workbook":
+        sheets = recording_metadata.get("sheet_previews", {})
+        for sheet_name, sheet in sheets.items():
+            if "time" in str(sheet_name).lower():
+                rows = sheet.get("preview") or []
+                break
+    elif recording_metadata.get("source") == "csv_meta_folder":
+        for file_path, file_info in recording_metadata.get("files", {}).items():
+            if "time" in str(file_path).lower() and isinstance(file_info, dict):
+                rows = file_info.get("preview") or []
+                break
+
+    for row in rows:
+        if str(row.get("event", "")).strip().upper() != "START":
+            continue
+        system_time = row.get("system time")
+        if system_time is not None and not pd.isna(system_time):
+            return float(system_time), str(row.get("system time text", "")).strip()
+    return None, ""
+
+
+def estimate_time_offset_from_timestamps(pair):
+    """Derive the offset from the start times both phones recorded themselves.
+
+    Each phone writes the wall-clock moment at which its recording started, so
+    the difference of those two moments is the offset - independent of what the
+    sensors measured. Its accuracy depends entirely on how well the two phone
+    clocks were synchronised, which is why it is reported as a second opinion
+    rather than used automatically.
+    """
+    start_a, text_a = _extract_start_timestamp(pair["recording_metadata_a"])
+    start_b, text_b = _extract_start_timestamp(pair["recording_metadata_b"])
+
+    if start_a is None or start_b is None:
+        missing = [
+            pair[f"label_{key}"]
+            for key, value in [("a", start_a), ("b", start_b)]
+            if value is None
+        ]
+        return {
+            "available": False,
+            "offset_seconds": None,
+            "reason": (
+                f"No recorded start time was found for {' and '.join(missing)}. "
+                "phyphox writes it to the 'Metadata Time' sheet of an Excel export "
+                "or to meta/time.csv next to a CSV export."
+            ),
+        }
+
+    # A sample at internal time t belongs to wall clock start + t. Making both
+    # wall clocks agree therefore means adding (start_b - start_a) to B.
+    return {
+        "available": True,
+        "offset_seconds": float(start_b - start_a),
+        "start_a_epoch": start_a,
+        "start_b_epoch": start_b,
+        "start_a_text": text_a,
+        "start_b_text": text_b,
+    }
+
+
+def compare_offset_estimates(pair, offset_result, timestamp_result=None):
+    """Put the correlation-based and clock-based offsets next to each other.
+
+    The two are derived from completely independent sources - the measured
+    values and the phone clocks - so agreement between them is real evidence
+    that the alignment is right.
+    """
+    if timestamp_result is None:
+        timestamp_result = estimate_time_offset_from_timestamps(pair)
+
+    rows = [
+        {
+            "method": "signal correlation",
+            "offset_s": round(offset_result["offset_seconds"], 4),
+            "based_on": "the measured values of both recordings",
+            "detail": f"correlation {offset_result['correlation']:.4f}",
+        }
+    ]
+
+    if timestamp_result.get("available"):
+        rows.append(
+            {
+                "method": "recorded start times",
+                "offset_s": round(timestamp_result["offset_seconds"], 4),
+                "based_on": "the clocks of the two phones",
+                "detail": f"{timestamp_result['start_a_text']} -> {timestamp_result['start_b_text']}",
+            }
+        )
+        difference = timestamp_result["offset_seconds"] - offset_result["offset_seconds"]
+        rows.append(
+            {
+                "method": "difference",
+                "offset_s": round(difference, 4),
+                "based_on": "clock offset minus correlation offset",
+                "detail": (
+                    "within the resolution of the search - no clock error detectable"
+                    if abs(difference) <= _clock_tolerance(offset_result)
+                    else "the two phone clocks do not agree - see the clock synchronisation check"
+                ),
+            }
+        )
+    else:
+        rows.append(
+            {
+                "method": "recorded start times",
+                "offset_s": None,
+                "based_on": "the clocks of the two phones",
+                "detail": timestamp_result.get("reason", "not available"),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _clock_tolerance(offset_result):
+    """Smallest clock difference the signal search could still resolve."""
+    return max(3 * offset_result["grid_step_s"], 0.05)
+
+
+def summarize_clock_synchronisation(pair, offset_result, timestamp_result=None):
+    """Check the phone clocks against the measured signals.
+
+    The signals show when the drive really happened, the timestamps show when
+    the phones believed it happened. The gap between the two answers is what
+    the phone clocks are off by - a quantity that is invisible in a single
+    recording and only becomes measurable by comparing two.
+    """
+    if timestamp_result is None:
+        timestamp_result = estimate_time_offset_from_timestamps(pair)
+
+    if not timestamp_result.get("available"):
+        return pd.DataFrame(
+            [{"item": "clock_check", "value": timestamp_result.get("reason", "not available"), "unit": "-"}]
+        )
+
+    clock_difference = timestamp_result["offset_seconds"] - offset_result["offset_seconds"]
+    tolerance = _clock_tolerance(offset_result)
+    synchronised = abs(clock_difference) <= tolerance
+
+    time_column = pair["b"]["time_column"]
+    median_step = float(pair["b"]["df_analysis"][time_column].diff().median())
+    affected_samples = abs(clock_difference) / median_step if median_step else float("nan")
+
+    if synchronised:
+        verdict = (
+            "Both clocks agree within what this search can resolve. The timestamps could be "
+            "used for the alignment here."
+        )
+        ahead = "neither, within the resolution"
+    else:
+        ahead = pair["label_b"] if clock_difference > 0 else pair["label_a"]
+        verdict = (
+            f"The clocks are not synchronised. Trusting the timestamps instead of the signals "
+            f"would misalign the two recordings by {abs(clock_difference):.3f} s, which is about "
+            f"{affected_samples:.0f} samples of {pair['label_b']}."
+        )
+
+    return pd.DataFrame(
+        [
+            {"item": "offset_from_signals", "value": round(offset_result["offset_seconds"], 4), "unit": "s"},
+            {"item": "offset_from_clocks", "value": round(timestamp_result["offset_seconds"], 4), "unit": "s"},
+            {"item": "clock_difference", "value": round(clock_difference, 4), "unit": "s"},
+            {"item": "resolvable_from_this_search", "value": round(tolerance, 4), "unit": "s"},
+            {"item": "clocks_synchronised", "value": bool(synchronised), "unit": "-"},
+            {"item": "clock_running_ahead", "value": ahead, "unit": "-"},
+            {"item": "misalignment_if_clocks_trusted", "value": round(abs(clock_difference), 4), "unit": "s"},
+            {"item": "conclusion", "value": verdict, "unit": "-"},
+        ]
+    )
+
+
+def plot_clock_synchronisation(pair, offset_result, timestamp_result=None):
+    """Show both recordings under each alignment, so the clock error is visible.
+
+    The upper panel uses the offset the signals suggest, the lower one the
+    offset the clocks suggest. If the clocks are wrong, the lower panel is
+    visibly out of step while the upper one is not.
+    """
+    import matplotlib.pyplot as plt
+
+    if timestamp_result is None:
+        timestamp_result = estimate_time_offset_from_timestamps(pair)
+    if not timestamp_result.get("available"):
+        raise ValueError(timestamp_result.get("reason", "No recorded start times are available."))
+
+    variants = [
+        (offset_result["offset_seconds"], "aligned by the measured signals"),
+        (timestamp_result["offset_seconds"], "aligned by the recorded clocks"),
+    ]
+    fig, axes = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
+
+    for ax, (offset, title) in zip(axes, variants):
+        shifted = apply_time_offset(pair, offset)
+        for key, label, color in [("a", pair["label_a"], "#172554"), ("b", pair["label_b"], "#f97316")]:
+            context = shifted[key]
+            ax.plot(
+                context["df_analysis"][context["time_column"]],
+                context["df_analysis"]["smoothed"],
+                color=color,
+                linewidth=1.6,
+                label=label,
+            )
+        ax.set_title(f"{title} (offset {offset:+.3f} s)")
+        ax.set_ylabel(pair["a"]["value_column"])
+        ax.legend(loc="upper right")
+        ax.grid(True, alpha=0.3)
+
+    axes[-1].set_xlabel("Time (s)")
+    fig.tight_layout()
+    plt.show()
+    return fig, axes
 
 
 def apply_time_offset(pair, time_offset_seconds):
@@ -303,7 +542,7 @@ def _axis_specification(pair):
             ("yaw_rate_column", "yaw_rate_smoothed", "yaw rate", "rad/s"),
         ]
     raise ValueError(
-        f"Lab 6B supports suspension acceleration and angular velocity, not {pair['analysis_key']!r}."
+        f"Module 6 Lab 2 supports suspension acceleration and angular velocity, not {pair['analysis_key']!r}."
     )
 
 
@@ -485,15 +724,21 @@ def create_shifted_test_file(
     output_path,
     start_delay_s,
     stop_early_s=0.0,
+    clock_error_s=0.0,
     project_root=None,
 ):
-    """Build an artificially shifted twin of a recording for testing Lab 6B.
+    """Build an artificially shifted twin of a recording for testing Module 6 Lab 2.
 
     Imitates a second phone that was started start_delay_s later and stopped
     stop_early_s earlier than the first one. Like a real phone it counts from
     zero, so the delay shows up as a shifted time column rather than as a gap.
     The measured values are copied unchanged, which makes start_delay_s the
     true offset the estimate can be checked against.
+
+    clock_error_s imitates the second phone's clock being wrong by that many
+    seconds. It changes only the recorded start timestamp, never the samples,
+    which is exactly how a real clock error behaves: the measurement is fine,
+    but the time it claims to have happened at is not.
     """
     from pathlib import Path
 
@@ -509,6 +754,31 @@ def create_shifted_test_file(
     trimmed = table[(table[time_column] >= start) & (table[time_column] <= end)].copy()
     trimmed[time_column] = trimmed[time_column] - start
 
+    # A real second phone also records its own start time, so the twin carries a
+    # shifted "Metadata Time" sheet. Without it the clock-based offset could not
+    # be demonstrated on the test files.
+    source_start, _ = _extract_start_timestamp(loaded["recording_metadata"])
+    time_metadata = None
+    if source_start is not None:
+        shifted_start = source_start + start_delay_s + clock_error_s
+        duration = float(trimmed[time_column].max())
+        time_metadata = pd.DataFrame(
+            [
+                {
+                    "event": "START",
+                    "experiment time": 0.0,
+                    "system time": shifted_start,
+                    "system time text": _format_epoch(shifted_start),
+                },
+                {
+                    "event": "PAUSE",
+                    "experiment time": duration,
+                    "system time": shifted_start + duration,
+                    "system time text": _format_epoch(shifted_start + duration),
+                },
+            ]
+        )
+
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     notes = pd.DataFrame(
@@ -517,6 +787,7 @@ def create_shifted_test_file(
             {"property": "source_file", "value": str(loaded["path"])},
             {"property": "started_later_by_s", "value": start_delay_s},
             {"property": "stopped_earlier_by_s", "value": stop_early_s},
+            {"property": "clock_error_s", "value": clock_error_s},
             {
                 "property": "note",
                 "value": (
@@ -524,14 +795,32 @@ def create_shifted_test_file(
                     f"Adding {start_delay_s:g} s to this file's time column restores the original timing."
                 ),
             },
+            {
+                "property": "clock_note",
+                "value": (
+                    f"The recorded start timestamp is {clock_error_s:+g} s away from the real start, "
+                    "imitating a phone clock that is not synchronised."
+                ),
+            },
         ]
     )
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         trimmed.to_excel(writer, sheet_name="Raw Data", index=False)
         notes.to_excel(writer, sheet_name="Metadata Device", index=False)
+        if time_metadata is not None:
+            time_metadata.to_excel(writer, sheet_name="Metadata Time", index=False)
 
     return {
         "output_path": str(output_path),
         "rows": int(len(trimmed)),
         "true_time_offset_s": start_delay_s,
+        "start_timestamp_written": time_metadata is not None,
     }
+
+
+def _format_epoch(epoch_seconds):
+    """Format an epoch value like phyphox does, in local time with offset."""
+    from datetime import datetime
+
+    stamp = datetime.fromtimestamp(epoch_seconds).astimezone()
+    return stamp.strftime("%Y-%m-%d %H:%M:%S.") + f"{stamp.microsecond // 1000:03d} UTC{stamp.strftime('%z')[:3]}:00"

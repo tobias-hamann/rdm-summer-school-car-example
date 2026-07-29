@@ -9,11 +9,11 @@
 
 Load drivetrain or suspension measurements, inspect their structure and data quality, and evaluate them with metadata-driven analysis parameters. The lab covers smoothing, outlier detection, visualizations, parameter comparisons, and the documentation of analytical decisions and limitations. Suspension datasets can now use either acceleration or gyroscope-derived angular-velocity measurements.
 
-### Module 6 – Lab 1B: Compare Two Measurements of the Same Drive
+### Module 6 – Lab 2: Compare Two Measurements of the Same Drive
 
-<a href="https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_06b_compare_two_measurements_jupyter.ipynb&system=deNBI-Cloud&flavor=m1" target="_blank" rel="noopener">Open Module 6 Lab 1B in JupyterHub</a>
+<a href="https://hub.nfdi-jupyter.de/v2/gh/tobias-hamann/rdm-summer-school-car-example/HEAD?labpath=lab_06_2_compare_two_measurements_jupyter.ipynb&system=deNBI-Cloud&flavor=m1" target="_blank" rel="noopener">Open Module 6 Lab 2 in JupyterHub</a>
 
-Compare two recordings of the same drive, made by two phones on the same car. Because both phones are started by hand, their clocks disagree; the lab estimates that time offset from the data, lets students shift the recordings interactively, and requires them to choose the offset they work with. Both measurements are then evaluated as in Lab 1 and shown side by side in tables and overlaid in plots. Works with acceleration and gyroscope data. The two files are entered directly in the notebook rather than taken from `metadata.json`, and `data/suspension/Comparison Example/` holds artificially shifted test files with a known offset for practising.
+Compare two recordings of the same drive, made by two phones on the same car. Because both phones are started by hand, their recordings do not begin at the same moment. The lab derives that time offset twice from independent sources - once by correlating the measured signals, once from the start timestamps the phones recorded themselves - and puts both next to each other as a cross-check. Students shift the recordings interactively and then choose the offset they work with. Both measurements are then evaluated as in Lab 1 and shown side by side in tables and overlaid in plots. Works with acceleration and gyroscope data. The two files are entered directly in the notebook rather than taken from `metadata.json`, and `data/suspension/Comparison Example/` holds artificially shifted test files with a known offset for practising.
 
 ### Module 10 – Lab: Publish Your Data
 
