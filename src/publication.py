@@ -33,6 +33,60 @@ AVAILABLE_LICENSES = {
 OPEN_DATA_FORMATS = {".csv", ".txt", ".json"}
 
 
+def assess_open_file_format(data_path):
+    """Judge whether a data file is in an open format.
+
+    A ZIP is only a container, so its own suffix says nothing about how open
+    the data is. A phyphox CSV export is a ZIP of open files and should not be
+    flagged, while a ZIP of spreadsheets should be. The archive is therefore
+    judged by what it contains, not by its extension.
+    """
+    data_path = Path(data_path)
+    suffix = data_path.suffix.lower()
+
+    if suffix != ".zip":
+        is_open = suffix in OPEN_DATA_FORMATS
+        return {
+            "is_open": is_open,
+            "detail": (
+                f"{suffix} is an open format"
+                if is_open
+                else f"{suffix} is proprietary - consider adding an open-format copy"
+            ),
+        }
+
+    try:
+        with ZipFile(data_path) as archive:
+            member_names = [item.filename for item in archive.infolist() if not item.is_dir()]
+    except Exception as error:
+        return {"is_open": False, "detail": f"the archive could not be read ({error})"}
+
+    if not member_names:
+        return {"is_open": False, "detail": "the archive is empty"}
+
+    closed_members = sorted(
+        {
+            Path(name).suffix.lower() or "(no extension)"
+            for name in member_names
+            if Path(name).suffix.lower() not in OPEN_DATA_FORMATS
+        }
+    )
+    if closed_members:
+        return {
+            "is_open": False,
+            "detail": (
+                f"zip contains {', '.join(closed_members)} - proprietary, "
+                "consider adding an open-format copy"
+            ),
+        }
+
+    contained = sorted({Path(name).suffix.lower() for name in member_names})
+    return {
+        "is_open": True,
+        "detail": f"zip contains only open formats ({', '.join(contained)})",
+    }
+
+
 def select_license(license_choice):
     """Return the licence entry for a catalogue key, or fail with the options."""
     if license_choice not in AVAILABLE_LICENSES:
@@ -102,7 +156,7 @@ def run_pre_publish_checks(metadata, selected_data_path, project_root, author_na
 
     required_fields = ["recorded_data_path", "measurement_type", "quantity", "run_name", "data_stage", "version"]
     missing_fields = [key for key in required_fields if metadata.get(key) in [None, ""]]
-    data_format_is_open = selected_data_path.suffix.lower() in OPEN_DATA_FORMATS
+    format_assessment = assess_open_file_format(selected_data_path)
 
     checks = [
         {
@@ -132,12 +186,8 @@ def run_pre_publish_checks(metadata, selected_data_path, project_root, author_na
         {
             "check": "Open file format",
             "blocking": False,
-            "passed": data_format_is_open,
-            "detail": (
-                selected_data_path.suffix + " is an open format"
-                if data_format_is_open
-                else selected_data_path.suffix + " is proprietary - consider adding an open-format copy"
-            ),
+            "passed": format_assessment["is_open"],
+            "detail": format_assessment["detail"],
         },
     ]
     checklist = pd.DataFrame(checks)

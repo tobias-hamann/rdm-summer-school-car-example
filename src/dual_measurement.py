@@ -294,18 +294,18 @@ def _extract_start_timestamp(recording_metadata):
     meta/ sidecar folder. Both are already collected by load_recorded_data,
     so no file has to be opened a second time.
     """
+    # Excel workbooks and ZIP archives expose their parts as sheets, CSV exports
+    # as sidecar files. Both are searched by structure rather than by source
+    # name, so a new container format works without changing this.
     rows = []
-    if recording_metadata.get("source") == "excel_workbook":
-        sheets = recording_metadata.get("sheet_previews", {})
-        for sheet_name, sheet in sheets.items():
-            if "time" in str(sheet_name).lower():
-                rows = sheet.get("preview") or []
+    for container_key in ["sheet_previews", "files"]:
+        entries = recording_metadata.get(container_key) or {}
+        for entry_name, entry in entries.items():
+            if "time" in str(entry_name).lower() and isinstance(entry, dict):
+                rows = entry.get("preview") or []
                 break
-    elif recording_metadata.get("source") == "csv_meta_folder":
-        for file_path, file_info in recording_metadata.get("files", {}).items():
-            if "time" in str(file_path).lower() and isinstance(file_info, dict):
-                rows = file_info.get("preview") or []
-                break
+        if rows:
+            break
 
     for row in rows:
         if str(row.get("event", "")).strip().upper() != "START":

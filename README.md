@@ -27,6 +27,12 @@ Turn the analysed measurement into a publication-quality data package. The lab w
 
 Import a stored measurement as an RO-Crate ZIP and reuse it for a new research question. For drivetrain data, the lab evaluates mean bright-phase illuminance against a configurable threshold; for suspension data, it estimates travelled distance, heading, start and end positions, and a local 2D route. The resulting findings, assumptions, parameters, and provenance are recorded for reproducibility.
 
+## Supported Input Formats
+
+Measurements are read from `.csv`, `.xls`, `.xlsx`, and `.zip`. The CSV reader detects the delimiter (comma, tabulator, semicolon) and the decimal notation (point or comma) from the file itself.
+
+phyphox exports a CSV measurement as a ZIP containing `Raw Data.csv` and a `meta/` folder. Such an archive can be given to the labs directly, without unpacking: `load_recorded_data()` reads the table and presents the `meta/` files as `Metadata Device` and `Metadata Time`, exactly as an Excel export exposes them as sheets. Everything downstream, including the recorded start timestamps that Module 6 Lab 2 compares, therefore works the same for both containers. RO-Crate ZIPs are recognised and rejected with a pointer to `load_ro_crate()`, since they are packages rather than measurement exports.
+
 ## Metadata Workflow
 
 <a href="create_metadata_jupyter.ipynb" target="_blank" rel="noopener"><code>create_metadata_jupyter.ipynb</code></a> prepares the metadata for the original measurement. It validates numerical ranges, displays an exact before/after comparison, and writes `metadata.json` only after an explicit button confirmation. Only the selected `measurement_type` is presented for editing; settings for the other use case remain unchanged or come from central defaults.

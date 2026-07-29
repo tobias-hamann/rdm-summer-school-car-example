@@ -1,8 +1,10 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from zipfile import ZipFile
 import argparse
 import csv
 import json
 import re
+import tempfile
 import warnings
 
 import numpy as np
@@ -46,19 +48,24 @@ def detect_csv_format(path):
     delimiter_names = {",": "comma", "\t": "tabulator", ";": "semicolon"}
     best = None
 
-    # Pick the delimiter that creates the most consistent multi-column table.
-    # A good delimiter should produce several rows with the same number of
-    # columns. The score combines consistency and width so that a two-column
-    # table beats a one-column parse of the same file.
+    # Pick the delimiter that splits the header into the same number of fields
+    # as the data rows. Judging the data rows alone is not enough: in an export
+    # with decimal commas, the comma also produces a consistent and even wider
+    # table, so it would win. The header is what separates the two cases,
+    # because a decimal separator does not occur in the column names.
     for delimiter in delimiters:
-        parsed = list(csv.reader(lines, delimiter=delimiter))
-        widths = [len(row) for row in parsed if row]
-        multi_column_rows = [width for width in widths if width > 1]
-        common_width = max(set(multi_column_rows), key=multi_column_rows.count) if multi_column_rows else 1
-        score = multi_column_rows.count(common_width) * common_width if multi_column_rows else 0
-        candidate = (score, common_width, delimiter)
+        parsed = [row for row in csv.reader(lines, delimiter=delimiter) if row]
+        if not parsed:
+            continue
+        header_width = len(parsed[0])
+        matching_rows = sum(1 for row in parsed[1:] if len(row) == header_width)
+        score = matching_rows * header_width if header_width > 1 else 0
+        candidate = (score, header_width, delimiter)
         if best is None or candidate > best:
             best = candidate
+
+    if best is None:
+        best = (0, 1, ",")
 
     delimiter = best[2]
 
@@ -113,9 +120,132 @@ def load_table(path, csv_format=None, **kwargs):
     if suffix in [".xlsx", ".xls"]:
         return pd.read_excel(path, **kwargs)
 
+    if suffix == ".zip":
+        return read_zip_archive(path, member=kwargs.get("member"))["table"]
+
     # Fail loudly for unsupported formats because silent fallbacks can hide data
     # handling errors early in the pipeline.
     raise ValueError(f"Unsupported file type: {suffix}")
+
+
+# phyphox packs a CSV export into a ZIP: the measurement table at the top level
+# and the recording metadata in a meta/ folder. An Excel export of the same
+# recording carries exactly the same content as three sheets, so the archive is
+# presented in that shape and the rest of the pipeline does not need to know
+# which of the two it was given.
+ZIP_METADATA_SHEET_NAMES = {
+    "device": "Metadata Device",
+    "time": "Metadata Time",
+}
+RO_CRATE_MARKER = "ro-crate-metadata.json"
+TABLE_SUFFIXES = [".csv", ".xlsx", ".xls"]
+
+
+def _zip_member_names(path):
+    with ZipFile(path) as archive:
+        return [item.filename for item in archive.infolist() if not item.is_dir()]
+
+
+def select_zip_data_member(member_names, member=None):
+    """Decide which file inside the archive holds the measurement table."""
+    if RO_CRATE_MARKER in [PurePosixPath(name).name for name in member_names]:
+        raise ValueError(
+            "This ZIP is an RO-Crate package, not a measurement export. "
+            "Load it with load_ro_crate() from src/ro_crate_loader.py instead."
+        )
+
+    if member is not None:
+        if member not in member_names:
+            raise ValueError(f"{member!r} is not in the archive. It contains: {member_names}")
+        return member
+
+    # Sidecar metadata lives in meta/, so anything below a folder is metadata
+    # rather than the measurement itself.
+    candidates = [
+        name
+        for name in member_names
+        if PurePosixPath(name).suffix.lower() in TABLE_SUFFIXES
+        and len(PurePosixPath(name).parts) == 1
+    ]
+    if not candidates:
+        raise ValueError(
+            f"No measurement table ({', '.join(TABLE_SUFFIXES)}) was found at the top level "
+            f"of the archive. It contains: {member_names}"
+        )
+    if len(candidates) > 1:
+        raise ValueError(
+            f"The archive contains several measurement tables: {candidates}. "
+            "Pass member='<file name>' to choose one."
+        )
+    return candidates[0]
+
+
+def _zip_sheet_name(member_name):
+    parts = PurePosixPath(member_name)
+    if len(parts.parts) == 1:
+        return parts.stem
+    return ZIP_METADATA_SHEET_NAMES.get(parts.stem.lower(), f"Metadata {parts.stem.title()}")
+
+
+def read_zip_archive(path, member=None, project_root=None):
+    """Read a zipped measurement export as one unit, like a multi-sheet workbook.
+
+    Returns the measurement table plus the recording metadata in the same shape
+    an Excel export produces, so a ZIP can be used anywhere an .xls can.
+    """
+    path = Path(path)
+    member_names = _zip_member_names(path)
+    data_member = select_zip_data_member(member_names, member)
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        # Unpacking to a temporary folder lets the existing CSV and Excel
+        # readers work unchanged, including the delimiter and decimal detection.
+        with ZipFile(path) as archive:
+            archive.extractall(temporary_directory)
+        extracted_root = Path(temporary_directory)
+
+        data_path = extracted_root / data_member
+        data_format = detect_format(data_path)
+        table = load_table(data_path, data_format if data_format["container_format"] == "csv" else None)
+
+        sheets = []
+        sheet_previews = {}
+        for name in member_names:
+            if PurePosixPath(name).suffix.lower() not in TABLE_SUFFIXES:
+                continue
+            sheet_name = _zip_sheet_name(name)
+            sheets.append(sheet_name)
+            if name == data_member:
+                frame = table.head(20)
+            else:
+                try:
+                    frame = load_table(extracted_root / name)
+                except Exception as error:
+                    sheet_previews[sheet_name] = {"error": str(error)}
+                    continue
+            sheet_previews[sheet_name] = {
+                "columns": frame.columns.tolist(),
+                "row_count_preview": int(len(frame)),
+                "preview": _frame_preview(frame, limit=10),
+            }
+
+    return {
+        "table": table,
+        "data_member": data_member,
+        "format": {
+            "container_format": "zip",
+            "format_label": f"zip ({data_format['format_label']})",
+            "data_member": data_member,
+            "member_format": data_format,
+        },
+        "recording_metadata": {
+            "source": "zip_archive",
+            "archive": _relative_or_absolute(path, Path(project_root) if project_root else Path.cwd()),
+            "data_member": data_member,
+            "sheets": sheets,
+            "sheet_previews": sheet_previews,
+        },
+    }
 
 
 def read_column_names(path):
@@ -134,6 +264,8 @@ def read_column_names(path):
             )
         elif suffix in [".xlsx", ".xls"]:
             frame = pd.read_excel(path, nrows=0)
+        elif suffix == ".zip":
+            frame = read_zip_archive(path)["table"].head(0)
         else:
             return []
     except Exception:
@@ -158,6 +290,11 @@ def detect_format(path):
             "container_format": "excel",
             "format_label": "excel",
         }
+
+    if suffix == ".zip":
+        # The archive is a container; the format that matters for reading is the
+        # one of the measurement table inside it.
+        return read_zip_archive(path)["format"]
 
     return {
         "container_format": suffix.lstrip(".") or "unknown",
@@ -242,6 +379,18 @@ def load_recorded_data(path, project_root=None):
     # that format.
     path = Path(path)
     project_root = Path(project_root) if project_root else Path.cwd()
+
+    # A ZIP already carries the table and its metadata together, so it is read
+    # in one pass instead of being opened once per step.
+    if path.suffix.lower() == ".zip":
+        archive = read_zip_archive(path, project_root=project_root)
+        return {
+            "path": _relative_or_absolute(path, project_root),
+            "format": archive["format"],
+            "table": archive["table"],
+            "recording_metadata": archive["recording_metadata"],
+        }
+
     file_format = detect_format(path)
 
     # For CSV, pass the detected format into load_table so delimiter and decimal
