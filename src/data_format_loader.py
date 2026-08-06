@@ -1622,6 +1622,113 @@ def calculate_suspension_orientation(analysis_context):
     }
 
 
+def compare_cornering_speed_correction(analysis_context):
+    """Explore how much of the speed estimate rests on a cornering artefact.
+
+    In every corner the vehicle leans, which tilts the phone, which changes how
+    much gravity leaks into the longitudinal axis. The leak follows the
+    *magnitude* of the lateral acceleration, not its sign - it happens in left
+    and right turns alike - so it hides from an ordinary correlation and shows
+    up only against ``|lateral|``.
+
+    Removing that term lowers the estimated speed considerably. This function
+    exists to show that, and to show why the result must not simply be believed:
+    a vehicle really does brake in corners, so genuine deceleration and the
+    artefact occur at the same moments and a single fitted coefficient cannot
+    tell them apart. Whatever it removes, it removes from both.
+
+    Exploratory comparison only. Nothing here feeds the reported results.
+    """
+    if analysis_context["analysis_key"] != "suspension_acceleration":
+        raise ValueError("The cornering comparison needs suspension acceleration data.")
+
+    df_analysis = analysis_context["df_analysis"]
+    time_column = analysis_context["time_column"]
+    time_values = df_analysis[time_column].to_numpy(dtype=float)
+    dt = np.diff(time_values, prepend=time_values[0])
+
+    standstill = detect_standstill(df_analysis, time_column, analysis_context["value_column"]).to_numpy()
+    main = _axis_series(df_analysis, "main_axis").to_numpy(dtype=float)
+    lateral = _axis_series(df_analysis, "lateral_axis").to_numpy(dtype=float)
+    if standstill.any():
+        main = main - main[standstill].mean()
+        lateral = lateral - lateral[standstill].mean()
+    moving = ~standstill
+
+    lateral_magnitude = np.abs(lateral)
+    if moving.sum() < 10 or lateral_magnitude[moving].std() < 1e-6:
+        raise ValueError(
+            "This recording has too little cornering for the comparison to say anything."
+        )
+
+    design = np.c_[np.ones(moving.sum()), lateral_magnitude[moving]]
+    (intercept, slope), *_ = np.linalg.lstsq(design, main[moving], rcond=None)
+    modelled = intercept + slope * lateral_magnitude
+    residual = main[moving] - modelled[moving]
+    explained = 1.0 - residual.var() / main[moving].var()
+
+    speeds = {}
+    for name, signal in [("as reported", main), ("cornering term removed", main - modelled)]:
+        speed, _ = _speed_from_standstill_references(np.cumsum(signal * dt), standstill)
+        speeds[name] = speed
+
+    summary = pd.DataFrame(
+        [
+            {
+                "quantity": "maximum speed",
+                "as reported": np.abs(speeds["as reported"]).max() * 3.6,
+                "cornering term removed": np.abs(speeds["cornering term removed"]).max() * 3.6,
+                "unit": "km/h",
+            },
+            {
+                "quantity": "spread of the longitudinal axis",
+                "as reported": main[moving].std(),
+                "cornering term removed": residual.std(),
+                "unit": "m/s^2",
+            },
+        ]
+    )
+    model = pd.DataFrame(
+        [
+            {"item": "fitted model", "value": f"main = {intercept:+.3f} {slope:+.3f} * |lateral|"},
+            {"item": "variance explained by cornering", "value": f"{100 * explained:.1f} %"},
+            {"item": "share of the drive spent cornering", "value": f"{100 * (lateral_magnitude[moving] > 2.0).mean():.0f} %"},
+            {"item": "status", "value": "exploratory - not used for any reported result"},
+        ]
+    )
+
+    return {
+        "summary": summary,
+        "model": model,
+        "time": time_values,
+        "speeds": speeds,
+        "standstill": standstill,
+        "explained_variance": float(explained),
+        "slope": float(slope),
+        "intercept": float(intercept),
+    }
+
+
+def plot_cornering_speed_correction(cornering_comparison):
+    """Draw both speed estimates over one another."""
+    import matplotlib.pyplot as plt
+
+    time_values = cornering_comparison["time"]
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for (name, speed), color in zip(cornering_comparison["speeds"].items(), ["#172554", "#f97316"]):
+        ax.plot(time_values, speed, label=name, color=color, linewidth=1.6)
+    ax.axhline(0, color="#64748b", linewidth=0.8)
+    ax.set_title("Estimated Speed With and Without the Cornering Term (exploratory)")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Speed (m/s)")
+    ax_kmh = ax.secondary_yaxis("right", functions=(lambda v: v * 3.6, lambda v: v / 3.6))
+    ax_kmh.set_ylabel("Speed (km/h)")
+    ax.legend(loc="upper left")
+    ax.grid(True, alpha=0.3)
+    finish_figure(fig, "cornering_speed_correction")
+    return fig, ax
+
+
 def plot_suspension_speed_diagram(suspension_motion):
     import matplotlib.pyplot as plt
 
@@ -1634,6 +1741,10 @@ def plot_suspension_speed_diagram(suspension_motion):
     ax.set_ylabel("Speed (m/s)")
     ax.grid(True, alpha=0.3)
     ax.legend()
+    # A second scale rather than a second curve: km/h is the same measurement in
+    # other units, so it is tied to the left axis and cannot drift away from it.
+    ax_kmh = ax.secondary_yaxis("right", functions=(lambda v: v * 3.6, lambda v: v / 3.6))
+    ax_kmh.set_ylabel("Speed (km/h)")
     finish_figure(fig, "suspension_speed_diagram")
     return fig, ax
 
