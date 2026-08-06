@@ -1,5 +1,5 @@
 {
-  "recorded_data_path": "data/suspension/Example/Beschleunigung ohne g.xls",
+  "recorded_data_path": "data/suspension/Example/Acceleration without g 2026-08-05 15-35-26.xls",
   "measurement_type": "suspension",
   "run_name": "Example",
   "quantity": "acceleration",
@@ -27,8 +27,8 @@
     "suspension_acceleration": {
       "time_column": "Time (s)",
       "value_column": "Absolute acceleration (m/s^2)",
-      "main_axis_column": "Linear Acceleration x (m/s^2)",
-      "lateral_axis_column": "Linear Acceleration y (m/s^2)",
+      "main_axis_column": "Linear Acceleration y (m/s^2)",
+      "lateral_axis_column": "Linear Acceleration x (m/s^2)",
       "vertical_axis_column": "Linear Acceleration z (m/s^2)",
       "analysis_start_s": null,
       "analysis_end_s": null,
@@ -48,8 +48,8 @@
     "suspension_angular_velocity": {
       "time_column": "Time (s)",
       "value_column": "Absolute (rad/s)",
-      "roll_rate_column": "Gyroscope x (rad/s)",
-      "pitch_rate_column": "Gyroscope y (rad/s)",
+      "roll_rate_column": "Gyroscope y (rad/s)",
+      "pitch_rate_column": "Gyroscope x (rad/s)",
       "yaw_rate_column": "Gyroscope z (rad/s)",
       "analysis_start_s": null,
       "analysis_end_s": null,
@@ -69,7 +69,7 @@
   "suspension": {
     "acceleration_unit": "m/s^2",
     "angular_velocity_unit": "rad/s",
-    "phone_mounting": "flat_screen_up_top_left",
+    "phone_mounting": "flat_screen_up_top_forward",
     "speed_axis_description": "main vehicle acceleration direction",
     "lateral_axis_description": "sideways acceleration",
     "vertical_axis_description": "vertical acceleration",

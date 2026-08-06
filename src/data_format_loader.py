@@ -1426,6 +1426,61 @@ def plot_motor_speed_outlier_diagram(motor_speed_rotations):
     return fig, ax
 
 
+STANDSTILL_WINDOW_S = 1.0
+# Standing samples sit near zero spread, driving ones near the typical spread,
+# so a quarter of the median falls in the gap between the two. Deriving it
+# instead of fixing a value keeps the detection working on any surface: a smooth
+# floor shakes the car far less than asphalt, and a fixed threshold that suited
+# one would misjudge the other.
+STANDSTILL_SPREAD_FRACTION = 0.25
+
+
+def detect_standstill(df_analysis, time_column, value_column):
+    """Mark the samples during which the vehicle was not moving.
+
+    A driving vehicle shakes; a parked one does not. The rolling spread of the
+    total acceleration therefore separates the two, which the longitudinal axis
+    alone cannot do: driving at a constant speed produces no longitudinal
+    acceleration either, so a small reading means "not accelerating", never
+    "not moving".
+    """
+    time_values = df_analysis[time_column].to_numpy(dtype=float)
+    step = float(np.median(np.diff(time_values))) if len(time_values) > 1 else 0.0
+    window = max(int(round(STANDSTILL_WINDOW_S / step)), 3) if step > 0 else 3
+    spread = df_analysis[value_column].rolling(window=window, center=True, min_periods=1).std()
+    return spread <= STANDSTILL_SPREAD_FRACTION * float(spread.median())
+
+
+def _speed_from_standstill_references(speed, standstill):
+    """Pull the integrated speed back to zero at every standstill.
+
+    Integration has no absolute reference: whatever is left in the signal after
+    bias removal keeps accumulating, and over a minute even a few hundredths of
+    a m/s^2 grow into an impossible speed. Every moment the vehicle is known to
+    be stationary is such a reference, and the error that built up since the
+    previous one is distributed linearly over the stretch in between.
+    """
+    speed = np.asarray(speed, dtype=float)
+    anchors = np.flatnonzero(np.asarray(standstill))
+    if not len(anchors):
+        return speed, False
+
+    corrected = speed.copy()
+    first = anchors[0]
+    corrected[: first + 1] = speed[: first + 1] - speed[first]
+    previous = first
+    for anchor in anchors[1:]:
+        span = anchor - previous
+        if span > 1:
+            drift = np.linspace(0.0, speed[anchor] - speed[previous], span + 1)
+            corrected[previous : anchor + 1] = speed[previous : anchor + 1] - speed[previous] - drift
+        else:
+            corrected[anchor] = 0.0
+        previous = anchor
+    corrected[previous:] = speed[previous:] - speed[previous]
+    return corrected, True
+
+
 def calculate_suspension_motion(analysis_context):
     config = analysis_context["config"]
     df_analysis = analysis_context["df_analysis"].copy()
@@ -1440,19 +1495,52 @@ def calculate_suspension_motion(analysis_context):
     main_acceleration = _axis_series(df_analysis, "main_axis")
     lateral_acceleration = _axis_series(df_analysis, "lateral_axis")
     vertical_acceleration = _axis_series(df_analysis, "vertical_axis")
-    previous_acceleration = main_acceleration.shift(fill_value=main_acceleration.iloc[0])
-    speed_increment = ((main_acceleration + previous_acceleration) / 2) * dt
+
+    standstill = detect_standstill(df_analysis, time_column, analysis_context["value_column"])
+    # The offset is read off the stationary samples, where the true longitudinal
+    # acceleration is zero by definition, instead of from the whole recording,
+    # where it would absorb the driving itself.
+    offset = float(main_acceleration[standstill].mean()) if standstill.any() else 0.0
+    corrected_acceleration = main_acceleration - offset
+
+    previous_acceleration = corrected_acceleration.shift(fill_value=corrected_acceleration.iloc[0])
+    speed_increment = ((corrected_acceleration + previous_acceleration) / 2) * dt
+    raw_speed = config.get("speed_initial_m_per_s", 0.0) + speed_increment.cumsum()
+
+    speed, anchored = _speed_from_standstill_references(
+        raw_speed.to_numpy(dtype=float), standstill.to_numpy()
+    )
+
     df_motion = df_analysis.copy()
-    df_motion["speed_m_per_s"] = config.get("speed_initial_m_per_s", 0.0) + speed_increment.cumsum()
+    df_motion["standstill"] = standstill.to_numpy()
+    df_motion["speed_uncorrected_m_per_s"] = raw_speed
+    df_motion["speed_m_per_s"] = speed
     df_motion["speed_km_per_h"] = df_motion["speed_m_per_s"] * 3.6
     df_motion["main_axis_g"] = main_acceleration / 9.80665
     df_motion["lateral_g"] = lateral_acceleration / 9.80665
     df_motion["vertical_g"] = vertical_acceleration / 9.80665
 
+    if not anchored:
+        warnings.warn(
+            "No standstill was found in this recording, so the integrated speed has no "
+            "zero reference and drifts freely. Treat it as an order of magnitude only.",
+            stacklevel=2,
+        )
+
     summary = pd.DataFrame(
         [
-            {"metric": "max_speed", "value": df_motion["speed_m_per_s"].max(), "unit": "m/s"},
-            {"metric": "max_speed", "value": df_motion["speed_km_per_h"].max(), "unit": "km/h"},
+            # The magnitude, not the signed maximum: the speed can run negative
+            # through a mounting that points backwards, and the fastest moment of
+            # the drive is then the most negative one.
+            {"metric": "max_speed", "value": df_motion["speed_m_per_s"].abs().max(), "unit": "m/s"},
+            {"metric": "max_speed", "value": df_motion["speed_km_per_h"].abs().max(), "unit": "km/h"},
+            {
+                "metric": "max_speed_without_zero_reference",
+                "value": df_motion["speed_uncorrected_m_per_s"].abs().max() * 3.6,
+                "unit": "km/h",
+            },
+            {"metric": "standstill_share", "value": 100.0 * float(standstill.mean()), "unit": "%"},
+            {"metric": "main_axis_offset_at_standstill", "value": offset, "unit": "m/s^2"},
             {"metric": "max_abs_main_axis_g", "value": df_motion["main_axis_g"].abs().max(), "unit": "g"},
             {"metric": "max_abs_lateral_g", "value": df_motion["lateral_g"].abs().max(), "unit": "g"},
             {"metric": "max_abs_vertical_g", "value": df_motion["vertical_g"].abs().max(), "unit": "g"},
@@ -1465,6 +1553,7 @@ def calculate_suspension_motion(analysis_context):
         "main_axis_column": main_axis,
         "lateral_axis_column": lateral_axis,
         "vertical_axis_column": vertical_axis,
+        "zero_reference_applied": bool(anchored),
     }
 
 
@@ -1758,8 +1847,8 @@ def compare_suspension_parameters(analysis_context, smoothing_windows):
         rows.append(
             {
                 "smoothing_window_rows": window,
-                "max_speed_m_per_s": motion["speed_m_per_s"].max(),
-                "max_speed_km_per_h": motion["speed_km_per_h"].max(),
+                "max_speed_m_per_s": motion["speed_m_per_s"].abs().max(),
+                "max_speed_km_per_h": motion["speed_km_per_h"].abs().max(),
                 "max_abs_main_axis_g": motion["main_axis_g"].abs().max(),
                 "max_abs_lateral_g": motion["lateral_g"].abs().max(),
                 "max_abs_vertical_g": motion["vertical_g"].abs().max(),
@@ -1811,10 +1900,10 @@ def plot_suspension_parameter_comparison(parameter_comparison):
     finish_figure(fig, "suspension_parameter_comparison_g_forces")
 
     fig_speed, ax_speed = plt.subplots(figsize=(8, 4))
-    ax_speed.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_speed_m_per_s"], marker="o")
+    ax_speed.plot(parameter_comparison["smoothing_window_rows"], parameter_comparison["max_speed_km_per_h"], marker="o")
     ax_speed.set_title("Maximum Vehicle Speed by Smoothing Window")
     ax_speed.set_xlabel("Smoothing window (rows)")
-    ax_speed.set_ylabel("Maximum speed (m/s)")
+    ax_speed.set_ylabel("Maximum speed (km/h)")
     ax_speed.grid(True, alpha=0.3)
     finish_figure(fig_speed, "suspension_parameter_comparison_speed")
     return (fig, ax), (fig_speed, ax_speed)
